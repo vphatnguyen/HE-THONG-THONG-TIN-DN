@@ -22,7 +22,6 @@ GO
 -- ============================================================
 IF OBJECT_ID('dbo.SurveyAnswers', 'U') IS NOT NULL DROP TABLE dbo.SurveyAnswers;
 IF OBJECT_ID('dbo.SurveyResults', 'U') IS NOT NULL DROP TABLE dbo.SurveyResults;
-IF OBJECT_ID('dbo.SurveyRecipients', 'U') IS NOT NULL DROP TABLE dbo.SurveyRecipients;
 IF OBJECT_ID('dbo.Questions', 'U') IS NOT NULL DROP TABLE dbo.Questions;
 IF OBJECT_ID('dbo.Feedbacks', 'U') IS NOT NULL DROP TABLE dbo.Feedbacks;
 IF OBJECT_ID('dbo.Surveys', 'U') IS NOT NULL DROP TABLE dbo.Surveys;
@@ -52,6 +51,44 @@ CREATE TABLE dbo.Accounts (
 );
 GO
 
+-- Trigger chặn xóa tài khoản Admin khi chỉ còn duy nhất 1 Admin trong hệ thống
+CREATE OR ALTER TRIGGER dbo.trg_PreventDeleteLastAdmin
+ON dbo.Accounts
+AFTER DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF EXISTS (SELECT 1 FROM deleted WHERE role = 'ADMIN')
+    BEGIN
+        IF (SELECT COUNT(*) FROM dbo.Accounts WHERE role = 'ADMIN') = 0
+        BEGIN
+            RAISERROR (N'Không thể xóa tài khoản Admin khi hệ thống chỉ có duy nhất 1 Admin.', 16, 1);
+            ROLLBACK TRANSACTION;
+            RETURN;
+        END
+    END
+END;
+GO
+
+-- Trigger chặn hạ quyền hoặc khóa tài khoản Admin khi chỉ còn duy nhất 1 Admin hoạt động
+CREATE OR ALTER TRIGGER dbo.trg_PreventDemoteLastAdmin
+ON dbo.Accounts
+AFTER UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF UPDATE(role) OR UPDATE(status)
+    BEGIN
+        IF (SELECT COUNT(*) FROM dbo.Accounts WHERE role = 'ADMIN' AND status = 'ACTIVE') = 0
+        BEGIN
+            RAISERROR (N'Hệ thống phải có ít nhất 1 tài khoản Admin đang hoạt động (ACTIVE).', 16, 1);
+            ROLLBACK TRANSACTION;
+            RETURN;
+        END
+    END
+END;
+GO
+
 -- Bảng 2: Customers - Thông tin chi tiết khách hàng
 CREATE TABLE dbo.Customers (
     id              INT IDENTITY(1,1) PRIMARY KEY,
@@ -60,6 +97,8 @@ CREATE TABLE dbo.Customers (
     gender          NVARCHAR(10) CONSTRAINT CK_Customers_gender CHECK (gender IN (N'Nu',N'Nam',N'Khac')),
     skin_type       NVARCHAR(50),
     beauty_preferences NVARCHAR(255),
+    membership_tier NVARCHAR(10) DEFAULT 'BRONZE'
+                    CONSTRAINT CK_Customers_tier CHECK (membership_tier IN ('BRONZE','SILVER','GOLD','PLATINUM')),
     created_at      DATETIME2 DEFAULT GETDATE(),
     CONSTRAINT FK_Customers_Accounts FOREIGN KEY (account_id) REFERENCES dbo.Accounts(id) ON DELETE CASCADE
 );
@@ -127,20 +166,6 @@ CREATE TABLE dbo.Questions (
 GO
 
 -- Bảng 7: SurveyResults - Lượt nộp bài khảo sát
-CREATE TABLE dbo.SurveyRecipients (
-    id              INT IDENTITY(1,1) PRIMARY KEY,
-    survey_id       INT NOT NULL,
-    customer_id     INT NOT NULL,
-    sent_by         INT,
-    sent_at         DATETIME2 DEFAULT GETDATE(),
-    CONSTRAINT FK_SurveyRecipients_Surveys FOREIGN KEY (survey_id) REFERENCES dbo.Surveys(id) ON DELETE CASCADE,
-    CONSTRAINT FK_SurveyRecipients_Customers FOREIGN KEY (customer_id) REFERENCES dbo.Customers(id),
-    CONSTRAINT FK_SurveyRecipients_Accounts FOREIGN KEY (sent_by) REFERENCES dbo.Accounts(id),
-    CONSTRAINT UQ_SurveyRecipients UNIQUE (survey_id, customer_id)
-);
-GO
-
--- Bảng 8: SurveyResults - Lượt nộp bài khảo sát
 CREATE TABLE dbo.SurveyResults (
     id              INT IDENTITY(1,1) PRIMARY KEY,
     survey_id       INT NOT NULL,
@@ -152,7 +177,7 @@ CREATE TABLE dbo.SurveyResults (
 );
 GO
 
--- Bảng 9: SurveyAnswers - Câu trả lời chi tiết của khảo sát
+-- Bảng 8: SurveyAnswers - Câu trả lời chi tiết của khảo sát
 CREATE TABLE dbo.SurveyAnswers (
     id                  INT IDENTITY(1,1) PRIMARY KEY,
     survey_result_id    INT NOT NULL,
@@ -163,7 +188,7 @@ CREATE TABLE dbo.SurveyAnswers (
 );
 GO
 
--- Bảng 10: Feedbacks - Phản hồi & đánh giá sản phẩm từ khách hàng
+-- Bảng 9: Feedbacks - Phản hồi & đánh giá sản phẩm từ khách hàng
 CREATE TABLE dbo.Feedbacks (
     id              INT IDENTITY(1,1) PRIMARY KEY,
     customer_id     INT NOT NULL,
@@ -190,43 +215,41 @@ CREATE INDEX IX_Feedbacks_Rating ON dbo.Feedbacks(rating);
 CREATE INDEX IX_Customers_Age ON dbo.Customers(age);
 CREATE INDEX IX_Accounts_Role ON dbo.Accounts(role);
 CREATE INDEX IX_Surveys_Status ON dbo.Surveys(status);
-CREATE INDEX IX_SurveyRecipients_Survey ON dbo.SurveyRecipients(survey_id);
-CREATE INDEX IX_SurveyRecipients_Customer ON dbo.SurveyRecipients(customer_id);
 GO
 
 -- ============================================================
 -- CHÈN DỮ LIỆU MẪU (DML)
 -- ============================================================
 
--- Dữ liệu tài khoản (Mật khẩu lưu dạng văn bản thuần - plain text)
+-- Dữ liệu tài khoản
 INSERT INTO dbo.Accounts (username, password, full_name, email, phone, role, status) VALUES
-(N'admin',    N'admin123',    N'Nguyễn Văn Admin',   N'admin@beautycrm.vn',      N'0901000001', 'ADMIN',    'ACTIVE'),
-(N'manager1', N'manager123',  N'Trần Thị Lan',       N'lan.tran@beautycrm.vn',   N'0902000001', 'MANAGER',  'ACTIVE'),
-(N'manager2', N'manager123',  N'Lê Minh Hương',      N'huong.le@beautycrm.vn',   N'0902000002', 'MANAGER',  'ACTIVE'),
-(N'khach001', N'customer123', N'Nguyễn Thị Mai',    N'mai.nguyen@gmail.com',    N'0903000001', 'CUSTOMER', 'ACTIVE'),
-(N'khach002', N'customer123', N'Phạm Thu Hà',       N'ha.pham@gmail.com',       N'0903000002', 'CUSTOMER', 'ACTIVE'),
-(N'khach003', N'customer123', N'Hoàng Thị Linh',    N'linh.hoang@gmail.com',    N'0903000003', 'CUSTOMER', 'ACTIVE'),
-(N'khach004', N'customer123', N'Đặng Thị Phương',   N'phuong.dang@gmail.com',   N'0903000004', 'CUSTOMER', 'ACTIVE'),
-(N'khach005', N'customer123', N'Vũ Thị Nga',        N'nga.vu@gmail.com',        N'0903000005', 'CUSTOMER', 'ACTIVE'),
-(N'khach006', N'customer123', N'Bùi Thị Thảo',      N'thao.bui@gmail.com',      N'0903000006', 'CUSTOMER', 'LOCKED'),
-(N'khach007', N'customer123', N'Lý Thị Kim',        N'kim.ly@gmail.com',        N'0903000007', 'CUSTOMER', 'ACTIVE'),
-(N'khach008', N'customer123', N'Trịnh Thị Loan',    N'loan.trinh@gmail.com',    N'0903000008', 'CUSTOMER', 'ACTIVE'),
-(N'khach009', N'customer123', N'Đinh Văn Nam',      N'nam.dinh@gmail.com',      N'0903000009', 'CUSTOMER', 'ACTIVE'),
-(N'khach010', N'customer123', N'Cao Thị Yến',       N'yen.cao@gmail.com',       N'0903000010', 'CUSTOMER', 'ACTIVE');
+(N'admin',    N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Nguyễn Văn Admin',   N'admin@beautycrm.vn',      N'0901000001', 'ADMIN',    'ACTIVE'),
+(N'manager1', N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Trần Thị Lan',       N'lan.tran@beautycrm.vn',   N'0902000001', 'MANAGER',  'ACTIVE'),
+(N'manager2', N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Lê Minh Hương',      N'huong.le@beautycrm.vn',   N'0902000002', 'MANAGER',  'ACTIVE'),
+(N'khach001', N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Nguyễn Thị Mai',    N'mai.nguyen@gmail.com',    N'0903000001', 'CUSTOMER', 'ACTIVE'),
+(N'khach002', N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Phạm Thu Hà',       N'ha.pham@gmail.com',       N'0903000002', 'CUSTOMER', 'ACTIVE'),
+(N'khach003', N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Hoàng Thị Linh',    N'linh.hoang@gmail.com',    N'0903000003', 'CUSTOMER', 'ACTIVE'),
+(N'khach004', N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Đặng Thị Phương',   N'phuong.dang@gmail.com',   N'0903000004', 'CUSTOMER', 'ACTIVE'),
+(N'khach005', N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Vũ Thị Nga',        N'nga.vu@gmail.com',        N'0903000005', 'CUSTOMER', 'ACTIVE'),
+(N'khach006', N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Bùi Thị Thảo',      N'thao.bui@gmail.com',      N'0903000006', 'CUSTOMER', 'LOCKED'),
+(N'khach007', N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Lý Thị Kim',        N'kim.ly@gmail.com',        N'0903000007', 'CUSTOMER', 'ACTIVE'),
+(N'khach008', N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Trịnh Thị Loan',    N'loan.trinh@gmail.com',    N'0903000008', 'CUSTOMER', 'ACTIVE'),
+(N'khach009', N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Đinh Văn Nam',      N'nam.dinh@gmail.com',      N'0903000009', 'CUSTOMER', 'ACTIVE'),
+(N'khach010', N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Cao Thị Yến',       N'yen.cao@gmail.com',       N'0903000010', 'CUSTOMER', 'ACTIVE');
 GO
 
 -- Dữ liệu khách hàng (hồ sơ làm đẹp)
-INSERT INTO dbo.Customers (account_id, age, gender, skin_type, beauty_preferences) VALUES
-(4,  24, N'Nu', N'Da dầu',       N'Trang điểm,Chống lão hóa'),
-(5,  19, N'Nu', N'Da khô',       N'Chăm sóc da,Dưỡng ẩm'),
-(6,  31, N'Nu', N'Da hỗn hợp',   N'Chống lão hóa,Trị mụn'),
-(7,  28, N'Nu', N'Da nhạy cảm',  N'Chăm sóc da,Organic'),
-(8,  22, N'Nu', N'Da thường',    N'Trang điểm,Chăm sóc da'),
-(9,  35, N'Nu', N'Da dầu',       N'Trị mụn,Chăm sóc da'),
-(10, 42, N'Nu', N'Da khô',        N'Chống lão hóa,Dưỡng ẩm'),
-(11, 17, N'Nu', N'Da thường',    N'Trang điểm,Skincare cơ bản'),
-(12, 38, N'Nam', N'Da dầu',      N'Chăm sóc da,Dưỡng ẩm'),
-(13, 26, N'Nu', N'Da hỗn hợp',   N'Trang điểm,Chống lão hóa,Trị mụn');
+INSERT INTO dbo.Customers (account_id, age, gender, skin_type, beauty_preferences, membership_tier) VALUES
+(4,  24, N'Nu', N'Da dầu',       N'Trang điểm,Chống lão hóa',       'SILVER'),
+(5,  19, N'Nu', N'Da khô',       N'Chăm sóc da,Dưỡng ẩm',           'BRONZE'),
+(6,  31, N'Nu', N'Da hỗn hợp',   N'Chống lão hóa,Trị mụn',          'GOLD'),
+(7,  28, N'Nu', N'Da nhạy cảm',  N'Chăm sóc da,Organic',            'SILVER'),
+(8,  22, N'Nu', N'Da thường',    N'Trang điểm,Chăm sóc da',         'BRONZE'),
+(9,  35, N'Nu', N'Da dầu',       N'Trị mụn,Chăm sóc da',            'GOLD'),
+(10, 42, N'Nu', N'Da khô',       N'Chống lão hóa,Dưỡng da',         'PLATINUM'),
+(11, 17, N'Nu', N'Da thường',    N'Trang điểm,Skincare cơ bản',     'BRONZE'),
+(12, 38, N'Nam', N'Da dầu',      N'Chăm sóc da,Dưỡng ẩm',          'SILVER'),
+(13, 26, N'Nu', N'Da hỗn hợp',   N'Trang điểm,Chống lão hóa,Trị mụn', 'GOLD');
 GO
 
 -- Dữ liệu nhà cung cấp
@@ -258,16 +281,6 @@ INSERT INTO dbo.Surveys (title, description, target_product_id, start_date, end_
 (N'Khảo sát thị hiếu Son môi Hè 2026', N'Thu thập ý kiến khách hàng về màu sắc, chất son và mức giá mong muốn cho dòng son Glossy Shine.', 9, '2026-06-01', '2026-08-31', 'ACTIVE', 2),
 (N'Khảo sát nhu cầu Serum chống lão hóa Peptide', N'Khảo sát trải nghiệm dưỡng da chống nhăn dành cho độ tuổi 25+ trước ngày mở bán chính thức.', 10, '2026-06-15', '2026-09-30', 'ACTIVE', 3),
 (N'Khảo sát mức độ hài lòng dịch vụ Quý 2/2026', N'Đánh giá chất lượng phục vụ, đóng gói và tư vấn làm đẹp của BeautyCRM.', NULL, '2026-04-01', '2026-06-30', 'ACTIVE', 2);
-GO
-
--- Gửi khảo sát mẫu đến từng tài khoản khách hàng đang hoạt động
-INSERT INTO dbo.SurveyRecipients (survey_id, customer_id, sent_by)
-SELECT s.id, c.id, s.created_by
-FROM dbo.Surveys s
-CROSS JOIN dbo.Customers c
-JOIN dbo.Accounts a ON c.account_id = a.id
-WHERE s.status = 'ACTIVE'
-  AND a.status = 'ACTIVE';
 GO
 
 -- Dữ liệu câu hỏi khảo sát (Questions)

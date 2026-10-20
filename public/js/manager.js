@@ -468,7 +468,7 @@ async function renderManagerSurveys() {
               <div class="survey-title">${s.title}</div>
               <div class="survey-meta">
                 ${surveyStatusBadge(s.status)}
-                ${s.product_name ? `&nbsp;📦 ${s.product_name}` : ''}
+                ${s.product_names ? `&nbsp;📦 ${s.product_names}` : ''}
                 &nbsp;· 📝 ${s.question_count} câu hỏi
                 &nbsp;· 📤 ${s.recipient_count || 0} người nhận
                 &nbsp;· 👥 ${s.response_count} phản hồi
@@ -491,9 +491,14 @@ async function renderManagerSurveys() {
 }
 
 async function openCreateSurveyModal() {
-  const products = await api('GET', '/api/products?launch_status=UPCOMING').catch(() => []);
+  const products = await api('GET', '/api/products').catch(() => []);
   const customers = await api('GET', '/api/manager/customers?status=ACTIVE').catch(() => []);
-  const prodOptions = products.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  const prodChecks = products.map(p => `
+    <label class="survey-option-label" style="font-size:12px">
+      <input type="checkbox" name="sv-product" value="${p.id}" style="accent-color:var(--rose-500)">
+      <span>${p.name} <span style="color:var(--text-muted);font-size:11px">${p.launch_status === 'UPCOMING' ? '⏳ Sắp ra mắt' : '✅ Chính thức'}</span></span>
+    </label>
+  `).join('');
   const customerChecks = customers.map(c => `
     <label class="survey-option-label" style="font-size:12px">
       <input type="checkbox" name="sv-recipient" value="${c.customer_id}" checked style="accent-color:var(--rose-500)">
@@ -503,8 +508,15 @@ async function openCreateSurveyModal() {
 
   showModal('➕ Tạo chiến dịch khảo sát mới', `
     <div class="form-group"><label>Tiêu đề khảo sát *</label><input id="sv-title" placeholder="VD: Khảo sát thị hiếu Son môi Hè 2026"></div>
-    <div class="form-group"><label>Sản phẩm sắp ra mắt (tùy chọn)</label>
-      <select id="sv-product"><option value="">-- Chọn sản phẩm --</option>${prodOptions}</select>
+    <div class="form-group">
+      <label>Sản phẩm liên quan * <span style="font-size:11px;color:var(--text-muted);font-weight:400">(chọn tối thiểu 1)</span></label>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;color:var(--text-muted)">Chọn các sản phẩm cho chiến dịch khảo sát này.</span>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="toggleAllSurveyProducts()">Chọn/Bỏ tất cả</button>
+      </div>
+      <div style="max-height:160px;overflow:auto;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        ${prodChecks || '<p style="font-size:12px;color:var(--text-muted)">Chưa có sản phẩm nào.</p>'}
+      </div>
     </div>
     <div class="form-row">
       <div class="form-group"><label>Ngày bắt đầu</label><input id="sv-start" type="date"></div>
@@ -584,6 +596,12 @@ function toggleAllSurveyRecipients() {
   boxes.forEach(b => { b.checked = shouldCheck; });
 }
 
+function toggleAllSurveyProducts() {
+  const boxes = [...document.querySelectorAll('input[name="sv-product"]')];
+  const shouldCheck = boxes.some(b => !b.checked);
+  boxes.forEach(b => { b.checked = shouldCheck; });
+}
+
 async function createSurvey(status) {
   const questions = [];
   document.querySelectorAll('[id^="q-block-"]').forEach((block) => {
@@ -598,13 +616,20 @@ async function createSurvey(status) {
   });
 
   try {
+    const target_product_ids = [...document.querySelectorAll('input[name="sv-product"]:checked')]
+      .map(el => Number(el.value))
+      .filter(Boolean);
+    if (target_product_ids.length === 0) {
+      toast('Vui lòng chọn ít nhất một sản phẩm cho chiến dịch khảo sát', 'error');
+      return;
+    }
     const recipient_customer_ids = [...document.querySelectorAll('input[name="sv-recipient"]:checked')]
       .map(el => Number(el.value))
       .filter(Boolean);
     const result = await api('POST', '/api/manager/surveys', {
       title: document.getElementById('sv-title').value.trim(),
       description: document.getElementById('sv-desc').value.trim(),
-      target_product_id: document.getElementById('sv-product').value || null,
+      target_product_ids,
       start_date: document.getElementById('sv-start').value || null,
       end_date: document.getElementById('sv-end').value || null,
       questions,

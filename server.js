@@ -49,6 +49,62 @@ async function ensureAppSchema() {
       CONSTRAINT UQ_SurveyRecipients UNIQUE (survey_id, customer_id)
     )
   `).run();
+
+  // Tạo bảng liên kết nhiều-nhiều giữa Surveys và Products
+  await db.prepare(`
+    IF OBJECT_ID('dbo.SurveyProducts', 'U') IS NULL
+    BEGIN
+      CREATE TABLE dbo.SurveyProducts (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        survey_id INT NOT NULL,
+        product_id INT NOT NULL,
+        CONSTRAINT FK_SurveyProducts_Surveys FOREIGN KEY (survey_id) REFERENCES dbo.Surveys(id) ON DELETE CASCADE,
+        CONSTRAINT FK_SurveyProducts_Products FOREIGN KEY (product_id) REFERENCES dbo.Products(id),
+        CONSTRAINT UQ_SurveyProducts UNIQUE (survey_id, product_id)
+      );
+      -- Di chuyển dữ liệu cũ từ target_product_id sang bảng mới
+      INSERT INTO dbo.SurveyProducts (survey_id, product_id)
+      SELECT id, target_product_id FROM dbo.Surveys WHERE target_product_id IS NOT NULL;
+    END
+  `).run();
+
+  await db.prepare(`
+    CREATE OR ALTER TRIGGER dbo.trg_PreventDeleteLastAdmin
+    ON dbo.Accounts
+    AFTER DELETE
+    AS
+    BEGIN
+      SET NOCOUNT ON;
+      IF EXISTS (SELECT 1 FROM deleted WHERE role = 'ADMIN')
+      BEGIN
+        IF (SELECT COUNT(*) FROM dbo.Accounts WHERE role = 'ADMIN') = 0
+        BEGIN
+          RAISERROR (N'Không thể xóa tài khoản Admin khi hệ thống chỉ có duy nhất 1 Admin.', 16, 1);
+          ROLLBACK TRANSACTION;
+          RETURN;
+        END
+      END
+    END
+  `).run();
+
+  await db.prepare(`
+    CREATE OR ALTER TRIGGER dbo.trg_PreventDemoteLastAdmin
+    ON dbo.Accounts
+    AFTER UPDATE
+    AS
+    BEGIN
+      SET NOCOUNT ON;
+      IF UPDATE(role) OR UPDATE(status)
+      BEGIN
+        IF (SELECT COUNT(*) FROM dbo.Accounts WHERE role = 'ADMIN' AND status = 'ACTIVE') = 0
+        BEGIN
+          RAISERROR (N'Hệ thống phải có ít nhất 1 tài khoản Admin đang hoạt động (ACTIVE).', 16, 1);
+          ROLLBACK TRANSACTION;
+          RETURN;
+        END
+      END
+    END
+  `).run();
 }
 
 function buildSqlServerBackupScript(type, filename) {
@@ -197,8 +253,34 @@ app.post('/api/admin/accounts', authMiddleware, requireRole('ADMIN'), async (req
 
 app.put('/api/admin/accounts/:id', authMiddleware, requireRole('ADMIN'), async (req, res) => {
   try {
+    const targetId = Number(req.params.id);
     const { role, status } = req.body;
-    await db.prepare('UPDATE Accounts SET role = ?, status = ? WHERE id = ?').run(role, status, req.params.id);
+
+    const targetAccount = await db.prepare('SELECT id, username, role, status FROM Accounts WHERE id = ?').get(targetId);
+    if (!targetAccount) {
+      return res.status(404).json({ error: 'Tài khoản không tồn tại' });
+    }
+
+    // Nếu tài khoản đang là ADMIN, ngăn chặn việc hạ quyền hoặc khóa khi chỉ có duy nhất 1 ADMIN
+    if (targetAccount.role === 'ADMIN') {
+      if (role && role !== 'ADMIN') {
+        const adminCountRes = await db.prepare("SELECT COUNT(*) AS total FROM Accounts WHERE role = 'ADMIN'").get();
+        const totalAdmins = Number(adminCountRes?.total || 0);
+        if (totalAdmins <= 1) {
+          return res.status(400).json({ error: 'Không thể thay đổi vai trò tài khoản Admin khi hệ thống chỉ còn duy nhất 1 Admin' });
+        }
+      }
+
+      if (status === 'LOCKED' && targetAccount.status === 'ACTIVE') {
+        const activeAdminRes = await db.prepare("SELECT COUNT(*) AS total FROM Accounts WHERE role = 'ADMIN' AND status = 'ACTIVE'").get();
+        const activeAdmins = Number(activeAdminRes?.total || 0);
+        if (activeAdmins <= 1) {
+          return res.status(400).json({ error: 'Không thể khóa tài khoản Admin khi hệ thống chỉ còn duy nhất 1 Admin đang hoạt động' });
+        }
+      }
+    }
+
+    await db.prepare('UPDATE Accounts SET role = ?, status = ? WHERE id = ?').run(role, status, targetId);
     res.json({ message: 'Cập nhật tài khoản thành công' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -207,16 +289,38 @@ app.put('/api/admin/accounts/:id', authMiddleware, requireRole('ADMIN'), async (
 
 app.delete('/api/admin/accounts/:id', authMiddleware, requireRole('ADMIN'), async (req, res) => {
   try {
-    if (req.params.id == req.user.id) return res.status(400).json({ error: 'Không thể xóa tài khoản của chính bạn' });
-    await db.prepare('DELETE FROM Accounts WHERE id = ?').run(req.params.id);
+    const targetId = Number(req.params.id);
+    if (!targetId) {
+      return res.status(400).json({ error: 'ID tài khoản không hợp lệ' });
+    }
+
+    const targetAccount = await db.prepare('SELECT id, username, role FROM Accounts WHERE id = ?').get(targetId);
+    if (!targetAccount) {
+      return res.status(404).json({ error: 'Tài khoản không tồn tại' });
+    }
+
+    // Chặn xóa tài khoản Admin nếu chỉ còn duy nhất 1 Admin trong hệ thống
+    if (targetAccount.role === 'ADMIN') {
+      const adminCountRes = await db.prepare("SELECT COUNT(*) AS total FROM Accounts WHERE role = 'ADMIN'").get();
+      const totalAdmins = Number(adminCountRes?.total || 0);
+      if (totalAdmins <= 1) {
+        return res.status(400).json({ error: 'Không thể xóa tài khoản Admin khi hệ thống chỉ còn duy nhất 1 Admin' });
+      }
+    }
+
+    // Gỡ liên kết khóa ngoại nếu có (ví dụ khảo sát do Admin này tạo/gửi) trước khi xóa
+    await db.prepare('UPDATE Surveys SET created_by = NULL WHERE created_by = ?').run(targetId);
+    await db.prepare('UPDATE SurveyRecipients SET sent_by = NULL WHERE sent_by = ?').run(targetId);
+
+    await db.prepare('DELETE FROM Accounts WHERE id = ?').run(targetId);
     res.json({ message: 'Đã xóa tài khoản' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ========== ADMIN: Products ==========
-app.get('/api/admin/products', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+// ========== PRODUCTS (Manager & Admin) ==========
+app.get('/api/admin/products', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
     const { search, category, supplier_id, launch_status, min_price, max_price, sort_by, sort_dir } = req.query;
     let sql = `SELECT p.*, s.name as supplier_name FROM Products p LEFT JOIN Suppliers s ON p.supplier_id = s.id WHERE 1=1`;
@@ -238,7 +342,7 @@ app.get('/api/admin/products', authMiddleware, requireRole('ADMIN'), async (req,
   }
 });
 
-app.post('/api/admin/products', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+app.post('/api/admin/products', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
     const { name, category, supplier_id, price, stock_quantity, description, launch_status } = req.body;
     if (!name || !category) return res.status(400).json({ error: 'Thiếu thông tin bắt buộc' });
@@ -249,7 +353,7 @@ app.post('/api/admin/products', authMiddleware, requireRole('ADMIN'), async (req
   }
 });
 
-app.put('/api/admin/products/:id', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+app.put('/api/admin/products/:id', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
     const { name, category, supplier_id, price, stock_quantity, description, launch_status } = req.body;
     await db.prepare('UPDATE Products SET name=?, category=?, supplier_id=?, price=?, stock_quantity=?, description=?, launch_status=? WHERE id=?').run(name, category, supplier_id || null, price, stock_quantity, description, launch_status, req.params.id);
@@ -259,7 +363,7 @@ app.put('/api/admin/products/:id', authMiddleware, requireRole('ADMIN'), async (
   }
 });
 
-app.delete('/api/admin/products/:id', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+app.delete('/api/admin/products/:id', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
     await db.prepare('DELETE FROM Products WHERE id = ?').run(req.params.id);
     res.json({ message: 'Đã xóa sản phẩm' });
@@ -268,8 +372,8 @@ app.delete('/api/admin/products/:id', authMiddleware, requireRole('ADMIN'), asyn
   }
 });
 
-// ========== ADMIN: Suppliers ==========
-app.get('/api/admin/suppliers', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+// ========== SUPPLIERS (Manager & Admin) ==========
+app.get('/api/admin/suppliers', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
     const { search, status } = req.query;
     let sql = 'SELECT * FROM Suppliers WHERE 1=1';
@@ -284,7 +388,7 @@ app.get('/api/admin/suppliers', authMiddleware, requireRole('ADMIN'), async (req
   }
 });
 
-app.post('/api/admin/suppliers', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+app.post('/api/admin/suppliers', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
     const { name, contact_name, email, phone, address, status } = req.body;
     if (!name) return res.status(400).json({ error: 'Tên nhà cung cấp là bắt buộc' });
@@ -295,7 +399,7 @@ app.post('/api/admin/suppliers', authMiddleware, requireRole('ADMIN'), async (re
   }
 });
 
-app.put('/api/admin/suppliers/:id', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+app.put('/api/admin/suppliers/:id', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
     const { name, contact_name, email, phone, address, status } = req.body;
     await db.prepare('UPDATE Suppliers SET name=?, contact_name=?, email=?, phone=?, address=?, status=? WHERE id=?').run(name, contact_name, email, phone, address, status, req.params.id);
@@ -305,7 +409,7 @@ app.put('/api/admin/suppliers/:id', authMiddleware, requireRole('ADMIN'), async 
   }
 });
 
-app.delete('/api/admin/suppliers/:id', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+app.delete('/api/admin/suppliers/:id', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
     await db.prepare('DELETE FROM Suppliers WHERE id = ?').run(req.params.id);
     res.json({ message: 'Đã xóa nhà cung cấp' });
@@ -608,12 +712,13 @@ app.delete('/api/manager/customers/:accountId', authMiddleware, requireRole('MAN
 app.get('/api/manager/surveys', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
     const surveys = await db.prepare(`
-      SELECT s.*, p.name as product_name, a.full_name as creator_name,
+      SELECT s.*,
+      (SELECT STRING_AGG(p2.name, N', ') FROM SurveyProducts sp2 JOIN Products p2 ON sp2.product_id = p2.id WHERE sp2.survey_id = s.id) as product_names,
+      a.full_name as creator_name,
       (SELECT COUNT(*) FROM SurveyResults sr WHERE sr.survey_id = s.id) as response_count,
       (SELECT COUNT(*) FROM Questions q WHERE q.survey_id = s.id) as question_count,
       (SELECT COUNT(*) FROM SurveyRecipients r WHERE r.survey_id = s.id) as recipient_count
       FROM Surveys s
-      LEFT JOIN Products p ON s.target_product_id = p.id
       LEFT JOIN Accounts a ON s.created_by = a.id
       ORDER BY s.created_at DESC
     `).all();
@@ -625,9 +730,16 @@ app.get('/api/manager/surveys', authMiddleware, requireRole('MANAGER'), async (r
 
 app.post('/api/manager/surveys', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
-    const { title, description, target_product_id, start_date, end_date, questions, recipient_customer_ids } = req.body;
+    const { title, description, target_product_ids, start_date, end_date, questions, recipient_customer_ids } = req.body;
     if (!title) return res.status(400).json({ error: 'Tiêu đề khảo sát là bắt buộc' });
-    const surveyResult = await db.prepare('INSERT INTO Surveys (title, description, target_product_id, start_date, end_date, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)').run(title, description || null, target_product_id || null, start_date || null, end_date || null, 'DRAFT', req.user.id);
+    if (!target_product_ids || !Array.isArray(target_product_ids) || target_product_ids.length === 0) {
+      return res.status(400).json({ error: 'Vui lòng chọn ít nhất một sản phẩm cho chiến dịch khảo sát' });
+    }
+    const surveyResult = await db.prepare('INSERT INTO Surveys (title, description, target_product_id, start_date, end_date, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)').run(title, description || null, null, start_date || null, end_date || null, 'DRAFT', req.user.id);
+    // Lưu danh sách sản phẩm vào bảng SurveyProducts
+    for (const productId of target_product_ids) {
+      await db.prepare('INSERT INTO SurveyProducts (survey_id, product_id) VALUES (?, ?)').run(surveyResult.lastInsertRowid, productId);
+    }
     if (questions && questions.length > 0) {
       for (let i = 0; i < questions.length; i++) {
         const q = questions[i];
@@ -809,12 +921,12 @@ app.get('/api/customer/surveys', authMiddleware, requireRole('CUSTOMER'), async 
     const customer = await db.prepare('SELECT id FROM Customers WHERE account_id = ?').get(req.user.id);
     if (!customer) return res.json([]);
     const surveys = await db.prepare(`
-      SELECT s.*, p.name as product_name,
+      SELECT s.*,
+      (SELECT STRING_AGG(p2.name, N', ') FROM SurveyProducts sp2 JOIN Products p2 ON sp2.product_id = p2.id WHERE sp2.survey_id = s.id) as product_names,
       (SELECT COUNT(*) FROM Questions q WHERE q.survey_id = s.id) as question_count,
       (SELECT COUNT(*) FROM SurveyResults sr WHERE sr.survey_id = s.id AND sr.customer_id = ?) as already_submitted
       FROM Surveys s
       JOIN SurveyRecipients r ON r.survey_id = s.id AND r.customer_id = ?
-      LEFT JOIN Products p ON s.target_product_id = p.id
       WHERE s.status = 'ACTIVE'
       ORDER BY r.sent_at DESC, s.created_at DESC
     `).all(customer.id, customer.id);
@@ -829,10 +941,10 @@ app.get('/api/customer/surveys/:id', authMiddleware, requireRole('CUSTOMER'), as
     const customer = await db.prepare('SELECT id FROM Customers WHERE account_id = ?').get(req.user.id);
     if (!customer) return res.status(400).json({ error: 'Không tìm thấy hồ sơ khách hàng' });
     const survey = await db.prepare(`
-      SELECT s.*, p.name as product_name
+      SELECT s.*,
+      (SELECT STRING_AGG(p2.name, N', ') FROM SurveyProducts sp2 JOIN Products p2 ON sp2.product_id = p2.id WHERE sp2.survey_id = s.id) as product_names
       FROM Surveys s
       JOIN SurveyRecipients r ON r.survey_id = s.id AND r.customer_id = ?
-      LEFT JOIN Products p ON s.target_product_id = p.id
       WHERE s.id = ? AND s.status = 'ACTIVE'
     `).get(customer.id, req.params.id);
     if (!survey) return res.status(404).json({ error: 'Không tìm thấy khảo sát' });

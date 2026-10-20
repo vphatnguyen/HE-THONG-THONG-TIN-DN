@@ -80,7 +80,7 @@ async function renderCustomerHome() {
                 <div class="survey-icon">📋</div>
                 <div class="survey-info">
                   <div class="survey-title">${s.title}</div>
-                  <div class="survey-meta">${s.product_name ? `📦 ${s.product_name} · ` : ''}📝 ${s.question_count} câu hỏi · ${surveyStatusBadge(s.status)}</div>
+                  <div class="survey-meta">${s.product_names ? `📦 ${s.product_names} · ` : ''}📝 ${s.question_count} câu hỏi · ${surveyStatusBadge(s.status)}</div>
                 </div>
                 <div class="survey-actions">
                   <button class="btn btn-primary btn-sm" onclick="startSurvey(${s.id})">Làm ngay ▶️</button>
@@ -136,7 +136,7 @@ async function renderCustomerSurveys() {
               <div class="survey-title">${s.title}</div>
               <div class="survey-meta">
                 ${surveyStatusBadge(s.status)}
-                ${s.product_name ? `&nbsp;· 📦 ${s.product_name}` : ''}
+                ${s.product_names ? `&nbsp;· 📦 ${s.product_names}` : ''}
                 &nbsp;· 📝 ${s.question_count} câu hỏi
                 ${s.end_date ? `&nbsp;· 🕐 Hạn: ${formatDate(s.end_date)}` : ''}
               </div>
@@ -167,7 +167,7 @@ async function startSurvey(id) {
     let body = `
       <div style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.15);border-radius:10px;padding:14px;margin-bottom:16px">
         <p style="font-size:13px;color:var(--text-secondary)">${survey.description || 'Cảm ơn bạn đã tham gia khảo sát!'}</p>
-        ${survey.product_name ? `<p style="font-size:12px;color:var(--text-muted);margin-top:4px">📦 Sản phẩm: <strong>${survey.product_name}</strong></p>` : ''}
+        ${survey.product_names ? `<p style="font-size:12px;color:var(--text-muted);margin-top:4px">📦 Sản phẩm: <strong>${survey.product_names}</strong></p>` : ''}
       </div>
       <form id="survey-form">
     `;

@@ -14,6 +14,19 @@ async function renderAdminAccounts() {
 }
 
 let currentAccountsList = [];
+let allAccountsList = [];
+
+async function renderAdminAccounts() {
+  setPageHeader('👥 Quản lý Tài khoản', 'Phân quyền và quản lý toàn bộ người dùng hệ thống',
+    `<button class="btn btn-primary" onclick="openCreateAccountModal()">➕ Thêm tài khoản</button>`);
+  showLoading();
+  try {
+    const accounts = await api('GET', '/api/admin/accounts');
+    allAccountsList = accounts;
+    renderAccountsTable(accounts);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 function openEditAccountModalById(id) {
   const a = currentAccountsList.find(x => Number(x.id) === Number(id));
   if (a) openEditAccountModal(a);
@@ -21,6 +34,11 @@ function openEditAccountModalById(id) {
 
 function renderAccountsTable(accounts, searchParams = {}) {
   currentAccountsList = accounts;
+  const currentUserId = state?.user?.id ? Number(state.user.id) : null;
+  const totalAdmins = allAccountsList.length
+    ? allAccountsList.filter(x => x.role === 'ADMIN').length
+    : accounts.filter(x => x.role === 'ADMIN').length;
+
   const html = `
     <div class="filter-bar">
       <input type="text" id="acc-search" placeholder="🔍 Tìm tên, username, email..." value="${searchParams.search || ''}">
@@ -45,7 +63,20 @@ function renderAccountsTable(accounts, searchParams = {}) {
           <th>Vai trò</th><th>Trạng thái</th><th>Ngày tạo</th><th>Hành động</th>
         </tr></thead>
         <tbody>
-          ${accounts.length === 0 ? `<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:40px">Không tìm thấy tài khoản nào</td></tr>` : accounts.map(a => `
+          ${accounts.length === 0 ? `<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:40px">Không tìm thấy tài khoản nào</td></tr>` : accounts.map(a => {
+            const isCurrentUser = currentUserId && Number(a.id) === currentUserId;
+            const isOnlyAdmin = a.role === 'ADMIN' && totalAdmins <= 1;
+
+            let deleteBtnHtml = '';
+            if (isOnlyAdmin) {
+              deleteBtnHtml = `<button class="btn btn-trash btn-sm" style="opacity:0.4;cursor:not-allowed;" title="Không thể xóa tài khoản Admin duy nhất trong hệ thống" onclick="toast('Không thể xóa tài khoản Admin khi hệ thống chỉ còn duy nhất 1 Admin!', 'error')"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>`;
+            } else if (isCurrentUser) {
+              deleteBtnHtml = `<button class="btn btn-trash btn-sm" title="Xóa tài khoản hiện tại (Bạn sẽ bị đăng xuất)" onclick="deleteAccount(${a.id},'${a.full_name.replace(/'/g, "\\'")}')"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>`;
+            } else {
+              deleteBtnHtml = `<button class="btn btn-trash btn-sm" onclick="deleteAccount(${a.id},'${a.full_name.replace(/'/g, "\\'")}')"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>`;
+            }
+
+            return `
             <tr>
               <td><span style="color:var(--text-muted)">#${a.id}</span></td>
               <td><strong>${a.full_name}</strong></td>
@@ -58,11 +89,12 @@ function renderAccountsTable(accounts, searchParams = {}) {
               <td>
                 <div style="display:flex;gap:6px">
                   <button class="btn btn-secondary btn-sm" onclick="openEditAccountModalById(${a.id})">✏️</button>
-                  <button class="btn btn-trash btn-sm" onclick="deleteAccount(${a.id},'${a.full_name.replace(/'/g, "\\'")}')"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>
+                  ${deleteBtnHtml}
                 </div>
               </td>
             </tr>
-          `).join('')}
+          `;
+          }).join('')}
         </tbody>
       </table>
     </div>
@@ -128,10 +160,20 @@ async function createAccount() {
 
 function openEditAccountModal(a) {
   if (typeof a === 'string') a = JSON.parse(a.replace(/&quot;/g, '"'));
+  const totalAdmins = allAccountsList.length
+    ? allAccountsList.filter(x => x.role === 'ADMIN').length
+    : currentAccountsList.filter(x => x.role === 'ADMIN').length;
+  const isOnlyAdmin = (a.role === 'ADMIN' && totalAdmins <= 1);
+
   showModal(`✏️ Phân quyền: ${a.full_name}`, `
+    ${isOnlyAdmin ? `
+      <div style="background:rgba(239, 68, 68, 0.1);border:1px solid rgba(239, 68, 68, 0.3);color:#f87171;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:16px;line-height:1.5">
+        ⚠️ <strong>Lưu ý:</strong> Đây là tài khoản <strong>Admin duy nhất</strong> trong hệ thống. Không thể chuyển sang vai trò khác hoặc khóa tài khoản này để bảo đảm quyền quản trị.
+      </div>
+    ` : ''}
     <div class="form-group">
       <label>Vai trò</label>
-      <select id="e-role">
+      <select id="e-role" ${isOnlyAdmin ? 'disabled title="Không thể đổi vai trò của Admin duy nhất"' : ''}>
         <option value="CUSTOMER" ${a.role === 'CUSTOMER' ? 'selected' : ''}>🛍️ Khách hàng</option>
         <option value="MANAGER" ${a.role === 'MANAGER' ? 'selected' : ''}>📊 Manager</option>
         <option value="ADMIN" ${a.role === 'ADMIN' ? 'selected' : ''}>👑 Admin</option>
@@ -139,7 +181,7 @@ function openEditAccountModal(a) {
     </div>
     <div class="form-group">
       <label>Trạng thái</label>
-      <select id="e-status">
+      <select id="e-status" ${isOnlyAdmin ? 'disabled title="Không thể khóa tài khoản của Admin duy nhất"' : ''}>
         <option value="ACTIVE" ${a.status === 'ACTIVE' ? 'selected' : ''}>✓ Hoạt động</option>
         <option value="LOCKED" ${a.status === 'LOCKED' ? 'selected' : ''}>🔒 Khóa tài khoản</option>
       </select>
@@ -153,10 +195,13 @@ function openEditAccountModal(a) {
 
 async function updateAccount(id) {
   try {
-    await api('PUT', `/api/admin/accounts/${id}`, {
-      role: document.getElementById('e-role').value,
-      status: document.getElementById('e-status').value,
-    });
+    const roleEl = document.getElementById('e-role');
+    const statusEl = document.getElementById('e-status');
+    const acc = currentAccountsList.find(x => Number(x.id) === Number(id));
+    const role = roleEl && !roleEl.disabled ? roleEl.value : (acc ? acc.role : 'ADMIN');
+    const status = statusEl && !statusEl.disabled ? statusEl.value : (acc ? acc.status : 'ACTIVE');
+
+    await api('PUT', `/api/admin/accounts/${id}`, { role, status });
     toast('Cập nhật tài khoản thành công!', 'success');
     closeModal();
     renderAdminAccounts();
@@ -164,11 +209,34 @@ async function updateAccount(id) {
 }
 
 async function deleteAccount(id, name) {
-  if (!confirm(`Xác nhận xóa tài khoản "${name}"? Hành động này không thể hoàn tác.`)) return;
+  const isCurrentUser = state?.user && Number(id) === Number(state.user.id);
+  const acc = currentAccountsList.find(x => Number(x.id) === Number(id));
+  const totalAdmins = allAccountsList.length
+    ? allAccountsList.filter(x => x.role === 'ADMIN').length
+    : currentAccountsList.filter(x => x.role === 'ADMIN').length;
+
+  if (acc && acc.role === 'ADMIN' && totalAdmins <= 1) {
+    toast('Không thể xóa tài khoản Admin khi hệ thống chỉ còn duy nhất 1 Admin!', 'error');
+    return;
+  }
+
+  const confirmMsg = isCurrentUser
+    ? `CẢNH BÁO: Bạn đang thực hiện xóa chính tài khoản "${name}" đang đăng nhập! Hệ thống sẽ xóa vĩnh viễn và tự động đăng xuất ngay sau đó. Bạn có chắc chắn muốn tiếp tục?`
+    : `Xác nhận xóa tài khoản "${name}"? Hành động này không thể hoàn tác.`;
+
+  if (!confirm(confirmMsg)) return;
+
   try {
     await api('DELETE', `/api/admin/accounts/${id}`);
-    toast('Đã xóa tài khoản', 'success');
-    renderAdminAccounts();
+    if (isCurrentUser) {
+      toast('Tài khoản của bạn đã được xóa thành công. Đang đăng xuất...', 'info');
+      setTimeout(() => {
+        logout();
+      }, 1000);
+    } else {
+      toast('Đã xóa tài khoản', 'success');
+      renderAdminAccounts();
+    }
   } catch (e) { toast(e.message, 'error'); }
 }
 

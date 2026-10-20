@@ -8,7 +8,6 @@ I. YÊU CẦU HỆ THỐNG & CÔNG NGHỆ SỬ DỤNG
 1. Công nghệ sử dụng:
    - Backend: Node.js (Express.js)
    - Cơ sở dữ liệu: Microsoft SQL Server (kết nối qua mssql / msnodesqlv8)
-   - Database Fallback: SQLite (tự động chuyển đổi nếu chưa cấu hình SQL Server)
    - Frontend: HTML5, CSS3, JavaScript (Single Page Application - SPA)
    - Xác thực: JWT (JSON Web Token)
 
@@ -79,12 +78,12 @@ Hệ thống được khởi tạo sẵn các tài khoản demo sau:
 IV. HƯỚNG DẪN SỬ DỤNG THEO VÀI TRÒ (PHÂN RÃ CHỨC NĂNG)
 --------------------------------------------------------------------------------
 1. Giao diện ADMIN (Quản trị hệ thống):
-   - Giao diện Admin được thiết kế tách biệt hoàn toàn.
-   - Tìm kiếm & Lọc nâng cao: Tìm kiếm theo tên sản phẩm, nhà cung cấp, loại sản phẩm, trạng thái ra mắt.
+   - Giao diện Admin được thiết kế tách biệt và tinh gọn chuyên sâu về quản trị hệ thống.
    - Quản lý tài khoản (CRUD): Xem danh sách tài khoản, phân quyền (ADMIN, MANAGER, CUSTOMER), khóa/mở khóa tài khoản.
-   - Quản lý Danh mục Sản phẩm & Nhà cung cấp: Thêm mới, chỉnh sửa, cập nhật số lượng tồn kho.
+   - Quản lý & Sao lưu, Phục hồi CSDL (Backup & Restore): Quản lý trạng thái kết nối SQL Server, thực thi Full Backup, Differential Backup và sinh kịch bản Restore.
 
 2. Giao diện MANAGER (Quản lý Cửa hàng & CRM):
+   - Quản lý Danh mục Sản phẩm & Nhà cung cấp: Tìm kiếm nâng cao, lọc, sắp xếp, thêm mới, cập nhật tồn kho, chỉnh sửa và xóa sản phẩm/nhà cung cấp.
    - Quản lý Khách hàng: Thêm khách hàng mới, khóa/mở khóa tài khoản khách hàng.
    - Dashboard CRM: Xem tổng khách hàng, tài khoản bị khóa, điểm đánh giá, phản hồi và tỷ lệ tham gia khảo sát.
    - Phân tích CRM: Lọc theo khoảng thời gian, phân tích khách hàng theo độ tuổi/giới tính/loại da, sở thích theo nhóm khách hàng, đánh giá theo sản phẩm và hiệu quả từng chiến dịch khảo sát.
