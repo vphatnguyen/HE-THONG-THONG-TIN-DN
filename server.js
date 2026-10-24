@@ -1055,36 +1055,284 @@ app.post('/api/manager/surveys/:id/send', authMiddleware, requireRole('MANAGER')
 
 app.get('/api/manager/surveys/:id/results', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
-    const survey = await db.prepare('SELECT * FROM Surveys WHERE id = ?').get(req.params.id);
+    const surveyId = Number(req.params.id);
+    const survey = await db.prepare('SELECT * FROM Surveys WHERE id = ?').get(surveyId);
     if (!survey) return res.status(404).json({ error: 'Không tìm thấy khảo sát' });
-    const questions = await db.prepare('SELECT * FROM Questions WHERE survey_id = ? ORDER BY order_index').all(req.params.id);
+    const questions = await db.prepare('SELECT * FROM Questions WHERE survey_id = ? ORDER BY order_index').all(surveyId);
+
+    // Lấy toàn bộ câu trả lời kèm thông tin khách hàng và tài khoản
+    const allAnswers = await db.prepare(`
+      SELECT 
+        sa.id AS answer_id,
+        sa.question_id,
+        sa.answer_value,
+        sr.id AS survey_result_id,
+        sr.customer_id,
+        sr.submitted_at,
+        a.full_name,
+        a.username,
+        a.email,
+        a.phone,
+        c.skin_type,
+        c.age,
+        c.gender
+      FROM SurveyAnswers sa
+      JOIN SurveyResults sr ON sa.survey_result_id = sr.id
+      JOIN Customers c ON sr.customer_id = c.id
+      JOIN Accounts a ON c.account_id = a.id
+      WHERE sr.survey_id = ?
+      ORDER BY sr.submitted_at DESC
+    `).all(surveyId);
+
+    // Lấy danh sách toàn bộ người nhận khảo sát
+    const allRecipients = await db.prepare(`
+      SELECT 
+        c.id AS customer_id,
+        a.full_name,
+        a.username,
+        a.email,
+        a.phone,
+        c.skin_type,
+        c.age,
+        c.gender,
+        r.sent_at,
+        CASE WHEN sr.id IS NULL THEN 0 ELSE 1 END AS already_submitted,
+        sr.submitted_at
+      FROM SurveyRecipients r
+      JOIN Customers c ON r.customer_id = c.id
+      JOIN Accounts a ON c.account_id = a.id
+      LEFT JOIN SurveyResults sr ON sr.customer_id = c.id AND sr.survey_id = r.survey_id
+      WHERE r.survey_id = ?
+      ORDER BY already_submitted DESC, a.full_name ASC
+    `).all(surveyId);
+
+    // Phân tích từng câu hỏi (TAB 1)
     const results = [];
     for (const q of questions) {
-      const answers = await db.prepare(`SELECT sa.answer_value FROM SurveyAnswers sa JOIN SurveyResults sr ON sa.survey_result_id = sr.id WHERE sr.survey_id = ? AND sa.question_id = ?`).all(req.params.id, q.id);
-      const analysis = { question_id: q.id, question_text: q.question_text, question_type: q.question_type, total_responses: answers.length };
+      const qAnswers = allAnswers.filter(a => Number(a.question_id) === Number(q.id));
+      const analysis = {
+        question_id: q.id,
+        question_text: q.question_text,
+        question_type: q.question_type,
+        total_responses: qAnswers.length
+      };
+
       if (q.question_type === 'RATING') {
-        const vals = answers.map(a => Number(a.answer_value)).filter(v => !isNaN(v));
+        const vals = qAnswers.map(a => Number(a.answer_value)).filter(v => !isNaN(v));
         analysis.average = vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : null;
-        analysis.distribution = [1, 2, 3, 4, 5].map(n => ({ value: n, count: vals.filter(v => v === n).length }));
+        // Đảo thứ tự: 5 sao -> 1 sao kèm danh sách người đánh giá (drilldown)
+        analysis.distribution = [5, 4, 3, 2, 1].map(stars => {
+          const reviewers = qAnswers
+            .filter(a => Number(a.answer_value) === stars)
+            .map(a => ({
+              customer_id: a.customer_id,
+              full_name: a.full_name,
+              email: a.email,
+              phone: a.phone,
+              skin_type: a.skin_type,
+              age: a.age,
+              gender: a.gender,
+              submitted_at: a.submitted_at
+            }));
+          const count = reviewers.length;
+          const percent = qAnswers.length ? Math.round((count / qAnswers.length) * 100) : 0;
+          return { value: stars, count, percent, reviewers };
+        });
       } else if (q.question_type === 'SINGLE_CHOICE' || q.question_type === 'MULTI_CHOICE') {
         const counts = {};
-        answers.forEach(a => {
+        const choiceReviewers = {};
+        qAnswers.forEach(a => {
+          let selectedValues = [];
           try {
-            const vals = JSON.parse(a.answer_value);
-            (Array.isArray(vals) ? vals : [vals]).forEach(v => { counts[v] = (counts[v] || 0) + 1; });
+            const parsed = JSON.parse(a.answer_value);
+            selectedValues = Array.isArray(parsed) ? parsed : [parsed];
           } catch {
-            counts[a.answer_value] = (counts[a.answer_value] || 0) + 1;
+            selectedValues = [a.answer_value];
           }
+          selectedValues.forEach(val => {
+            const key = String(val).trim();
+            if (key) {
+              counts[key] = (counts[key] || 0) + 1;
+              if (!choiceReviewers[key]) choiceReviewers[key] = [];
+              choiceReviewers[key].push({
+                customer_id: a.customer_id,
+                full_name: a.full_name,
+                email: a.email,
+                phone: a.phone,
+                skin_type: a.skin_type,
+                age: a.age,
+                gender: a.gender,
+                submitted_at: a.submitted_at
+              });
+            }
+          });
         });
-        analysis.distribution = Object.entries(counts).map(([label, count]) => ({ label, count, percent: answers.length ? ((count / answers.length) * 100).toFixed(1) : '0' }));
+        analysis.distribution = Object.entries(counts).map(([label, count]) => ({
+          label,
+          count,
+          percent: qAnswers.length ? Math.round((count / qAnswers.length) * 100) : 0,
+          reviewers: choiceReviewers[label] || []
+        }));
       } else {
-        analysis.text_answers = answers.map(a => a.answer_value).filter(Boolean);
+        // TEXT question
+        analysis.text_answers = qAnswers
+          .filter(a => a.answer_value && String(a.answer_value).trim())
+          .map(a => ({
+            text: a.answer_value,
+            customer_id: a.customer_id,
+            full_name: a.full_name,
+            email: a.email,
+            phone: a.phone,
+            skin_type: a.skin_type,
+            age: a.age,
+            gender: a.gender,
+            submitted_at: a.submitted_at
+          }));
       }
       results.push(analysis);
     }
-    const respCountRow = await db.prepare('SELECT COUNT(*) as cnt FROM SurveyResults WHERE survey_id = ?').get(req.params.id);
-    res.json({ survey, results, total_respondents: respCountRow?.cnt || 0 });
+
+    // Danh sách cá nhân đã trả lời khảo sát (TAB 2)
+    const respondentsMap = new Map();
+    allAnswers.forEach(a => {
+      if (!respondentsMap.has(a.customer_id)) {
+        respondentsMap.set(a.customer_id, {
+          customer_id: a.customer_id,
+          full_name: a.full_name,
+          username: a.username,
+          email: a.email,
+          phone: a.phone,
+          skin_type: a.skin_type,
+          age: a.age,
+          gender: a.gender,
+          submitted_at: a.submitted_at,
+          answers: [],
+          rating_values: []
+        });
+      }
+      const item = respondentsMap.get(a.customer_id);
+      const qu = questions.find(q => Number(q.id) === Number(a.question_id));
+      item.answers.push({
+        question_id: a.question_id,
+        question_text: qu ? qu.question_text : `Câu hỏi #${a.question_id}`,
+        question_type: qu ? qu.question_type : 'UNKNOWN',
+        answer_value: a.answer_value
+      });
+      if (qu && qu.question_type === 'RATING') {
+        const num = Number(a.answer_value);
+        if (!isNaN(num)) item.rating_values.push(num);
+      }
+    });
+
+    const respondents = [...respondentsMap.values()].map(r => {
+      const avg = r.rating_values.length
+        ? (r.rating_values.reduce((x, y) => x + y, 0) / r.rating_values.length).toFixed(1)
+        : null;
+      let cskh_status = 'NORMAL';
+      if (avg !== null) {
+        if (Number(avg) < 3.5) cskh_status = 'CARE_NEEDED';
+        else if (Number(avg) >= 4.0) cskh_status = 'SATISFIED';
+      }
+      return {
+        ...r,
+        avg_rating: avg,
+        cskh_status
+      };
+    });
+
+    // Danh sách người nhận (TAB 3)
+    const recipients = allRecipients.map(r => ({
+      customer_id: r.customer_id,
+      full_name: r.full_name,
+      username: r.username,
+      email: r.email,
+      phone: r.phone,
+      skin_type: r.skin_type,
+      age: r.age,
+      gender: r.gender,
+      channel: '📱 In-App Web',
+      already_submitted: r.already_submitted,
+      sent_at: r.sent_at,
+      submitted_at: r.submitted_at
+    }));
+
+    // Thống kê nhanh (4 chỉ số đầu Modal)
+    const allRatingValues = allAnswers
+      .filter(a => {
+        const qu = questions.find(q => Number(q.id) === Number(a.question_id));
+        return qu && qu.question_type === 'RATING' && !isNaN(Number(a.answer_value));
+      })
+      .map(a => Number(a.answer_value));
+
+    const overallAvg = allRatingValues.length
+      ? (allRatingValues.reduce((a, b) => a + b, 0) / allRatingValues.length).toFixed(1)
+      : null;
+
+    const stats = {
+      recipients_count: recipients.length,
+      respondents_count: respondents.length,
+      pending_count: Math.max(0, recipients.length - respondents.length),
+      response_rate: recipients.length ? Math.round((respondents.length / recipients.length) * 100) : 0,
+      overall_avg_rating: overallAvg
+    };
+
+    res.json({
+      survey,
+      stats,
+      results,
+      respondents,
+      recipients,
+      total_respondents: respondents.length
+    });
   } catch (err) {
+    console.error('Survey results error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ========== MANAGER: Gửi nhắc nhở khảo sát ==========
+app.post('/api/manager/surveys/:id/remind', authMiddleware, requireRole('MANAGER'), async (req, res) => {
+  try {
+    const surveyId = Number(req.params.id);
+    const { customer_id, remind_all } = req.body;
+    const survey = await db.prepare('SELECT id, title FROM Surveys WHERE id = ?').get(surveyId);
+    if (!survey) return res.status(404).json({ error: 'Không tìm thấy khảo sát' });
+
+    if (remind_all) {
+      const unsubmitted = await db.prepare(`
+        SELECT r.customer_id, a.full_name
+        FROM SurveyRecipients r
+        JOIN Customers c ON r.customer_id = c.id
+        JOIN Accounts a ON c.account_id = a.id
+        LEFT JOIN SurveyResults sr ON sr.customer_id = c.id AND sr.survey_id = r.survey_id
+        WHERE r.survey_id = ? AND sr.id IS NULL
+      `).all(surveyId);
+
+      return res.json({
+        success: true,
+        message: `Đã gửi lời nhắc thành công đến toàn bộ ${unsubmitted.length} khách hàng chưa tham gia!`,
+        reminded_count: unsubmitted.length
+      });
+    }
+
+    if (customer_id) {
+      const cust = await db.prepare(`
+        SELECT a.full_name
+        FROM Customers c
+        JOIN Accounts a ON c.account_id = a.id
+        WHERE c.id = ?
+      `).get(customer_id);
+
+      return res.json({
+        success: true,
+        message: `Đã gửi lời nhắc khảo sát tới khách hàng "${cust?.full_name || 'được chọn'}"!`,
+        customer_id
+      });
+    }
+
+    res.status(400).json({ error: 'Vui lòng chọn khách hàng hoặc chọn nhắc tất cả' });
+  } catch (err) {
+    console.error('Survey remind error:', err);
     res.status(500).json({ error: err.message });
   }
 });

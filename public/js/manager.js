@@ -586,7 +586,7 @@ async function renderManagerAnalytics() {
                       </div>
                     </td>
                     <td>
-                      ${s.csat_avg ? `<span style="color:#f59e0b;font-weight:700">⭐ ${s.csat_avg}</span> <span style="font-size:11px;color:var(--text-muted)">/ 5</span>` : '<span style="color:var(--text-muted)">—</span>'}
+                      ${s.csat_avg !== null && s.csat_avg !== undefined ? `<span style="color:#f59e0b;font-weight:700">⭐ ${Number(s.csat_avg).toFixed(1)}</span> <span style="font-size:11px;color:var(--text-muted)">/ 5</span>` : '<span style="color:var(--text-muted)">—</span>'}
                     </td>
                     <td style="text-align:center">
                       <button class="btn btn-secondary btn-sm" onclick="viewSurveyResults(${s.id},'${s.title.replace(/'/g, "\\'")}')">📊 Chi tiết</button>
@@ -1619,58 +1619,458 @@ async function saveSurveyRecipients(id) {
   } catch (e) { toast(e.message, 'error'); }
 }
 
+let currentSurveyResultData = null;
+let activeSurveyResultTab = 'questions';
+
+function cleanQuestionTitle(text, i) {
+  if (!text) return '';
+  const trimmed = text.trim();
+  if (/^(\d+(\.\d+)*[\.\):]|\d+\s+|câu\s+\d+[:\.]?)/i.test(trimmed)) {
+    return trimmed;
+  }
+  return `${i + 1}. ${trimmed}`;
+}
+
+function getStarColor(val) {
+  if (val >= 5) return '#10b981';
+  if (val === 4) return '#34d399';
+  if (val === 3) return '#fbbf24';
+  if (val === 2) return '#fb923c';
+  return '#f43f5e';
+}
+
+function toggleSurveyDrilldown(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.style.display = el.style.display === 'none' ? 'flex' : 'none';
+}
+
+function toggleRespondentDetail(id) {
+  const el = document.getElementById(`resp-detail-${id}`);
+  if (!el) return;
+  el.style.display = el.style.display === 'none' ? 'table-row' : 'none';
+}
+
+function switchSurveyResultTab(tabName) {
+  activeSurveyResultTab = tabName;
+  document.querySelectorAll('.modal-tab-btn').forEach(btn => btn.classList.remove('active'));
+  const activeBtn = document.getElementById(`stb-${tabName}`);
+  if (activeBtn) activeBtn.classList.add('active');
+  renderSurveyResultTabContent();
+}
+
+async function sendSurveyReminder(surveyId, customerId = null, remindAll = false, customerName = '') {
+  try {
+    const payload = remindAll ? { remind_all: true } : { customer_id: customerId };
+    const res = await api('POST', `/api/manager/surveys/${surveyId}/remind`, payload);
+    toast(res.message, 'success');
+  } catch (e) {
+    toast(`Không thể gửi nhắc nhở: ${e.message}`, 'error');
+  }
+}
+
 async function viewSurveyResults(id, title) {
   showModal(`📊 Kết quả: ${title}`, `<div class="loading-spinner"><div class="spinner"></div></div>`, true);
+  const modalEl = document.getElementById('modal');
+  if (modalEl) modalEl.style.maxWidth = '880px';
+
   try {
     const data = await api('GET', `/api/manager/surveys/${id}/results`);
-    const { results, total_respondents } = data;
+    currentSurveyResultData = data;
+    activeSurveyResultTab = 'questions';
 
-    let body = `<div style="margin-bottom:16px"><strong>👥 Tổng số người tham gia: <span style="color:var(--rose-300)">${total_respondents}</span></strong></div>`;
+    const { survey, stats, results, respondents, recipients } = data;
 
+    let body = `
+      <!-- THANH TÓM TẮT NHANH 4 CHỈ SỐ -->
+      <div class="survey-summary-chips">
+        <div class="survey-chip-item">
+          <div class="survey-chip-icon" style="background:rgba(59,130,246,0.12);color:#2563eb">📤</div>
+          <div>
+            <div class="survey-chip-label">Đã gửi</div>
+            <div class="survey-chip-val">${stats.recipients_count} khách</div>
+          </div>
+        </div>
+        <div class="survey-chip-item">
+          <div class="survey-chip-icon" style="background:rgba(16,185,129,0.12);color:#059669">✅</div>
+          <div>
+            <div class="survey-chip-label">Đã trả lời</div>
+            <div class="survey-chip-val">${stats.respondents_count} <small style="font-size:11px;font-weight:600;color:#059669">(${stats.response_rate}%)</small></div>
+          </div>
+        </div>
+        <div class="survey-chip-item">
+          <div class="survey-chip-icon" style="background:rgba(245,158,11,0.12);color:#d97706">⏳</div>
+          <div>
+            <div class="survey-chip-label">Chưa trả lời</div>
+            <div class="survey-chip-val" style="color:#d97706">${stats.pending_count} khách</div>
+          </div>
+        </div>
+        <div class="survey-chip-item">
+          <div class="survey-chip-icon" style="background:rgba(251,191,36,0.15);color:#d97706">⭐</div>
+          <div>
+            <div class="survey-chip-label">Điểm TB khảo sát</div>
+            <div class="survey-chip-val" style="color:#d97706">${stats.overall_avg_rating ? `${stats.overall_avg_rating}★ / 5` : '—'}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3 TAB NGHIỆP VỤ CRM -->
+      <div class="modal-tab-nav">
+        <button class="modal-tab-btn active" id="stb-questions" onclick="switchSurveyResultTab('questions')">
+          📊 Thống kê câu hỏi (${results.length})
+        </button>
+        <button class="modal-tab-btn" id="stb-respondents" onclick="switchSurveyResultTab('respondents')">
+          👤 Khách hàng đã tham gia (${respondents.length})
+        </button>
+        <button class="modal-tab-btn" id="stb-recipients" onclick="switchSurveyResultTab('recipients')">
+          📩 Danh sách người nhận & Nhắc nhở (${recipients.length})
+        </button>
+      </div>
+
+      <div id="survey-tab-content">
+        <!-- Rendered by renderSurveyResultTabContent -->
+      </div>
+    `;
+
+    document.getElementById('modal-body').innerHTML = body;
+    renderSurveyResultTabContent();
+  } catch (e) {
+    document.getElementById('modal-body').innerHTML = `<p class="error-msg">${e.message}</p>`;
+  }
+}
+
+function renderSurveyResultTabContent() {
+  const container = document.getElementById('survey-tab-content');
+  if (!container || !currentSurveyResultData) return;
+
+  const { survey, stats, results, respondents, recipients } = currentSurveyResultData;
+
+  // TAB 1: THỐNG KÊ CÂU HỎI
+  if (activeSurveyResultTab === 'questions') {
+    if (results.length === 0) {
+      container.innerHTML = `<div class="page-empty"><div class="empty-icon">📊</div><p>Chưa có dữ liệu câu hỏi</p></div>`;
+      return;
+    }
+
+    let html = `<div style="display:flex;flex-direction:column;gap:14px;max-height:60vh;overflow-y:auto;padding-right:4px">`;
     results.forEach((r, i) => {
-      body += `<div style="background:var(--bg-card-solid);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px">
-        <div style="font-size:13px;font-weight:700;margin-bottom:12px;color:var(--text-primary)">
-          ${i + 1}. ${r.question_text}
-          <span style="color:var(--text-muted);font-weight:400;font-size:11px">&nbsp;(${r.total_responses} phản hồi)</span>
-        </div>`;
+      const qTitle = cleanQuestionTitle(r.question_text, i);
+      html += `
+        <div style="background:var(--bg-card-solid);border:1px solid var(--border);border-radius:12px;padding:16px">
+          <div style="font-size:13.5px;font-weight:700;margin-bottom:12px;color:var(--text-primary);line-height:1.4">
+            ${escapeHtml(qTitle)}
+            <span style="color:var(--text-muted);font-weight:400;font-size:11px">&nbsp;(${r.total_responses} phản hồi)</span>
+          </div>
+      `;
 
       if (r.question_type === 'RATING') {
-        body += `<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
-          <div style="font-size:28px;font-weight:800;background:var(--grad-gold);-webkit-background-clip:text;-webkit-text-fill-color:transparent">${r.average || '—'}</div>
-          <div style="font-size:18px;color:#fbbf24">${r.average ? '★'.repeat(Math.round(r.average)) + '☆'.repeat(5 - Math.round(r.average)) : ''}</div>
-          <div style="font-size:12px;color:var(--text-muted)">Điểm trung bình</div>
-        </div>`;
+        html += `
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px dashed var(--border)">
+            <div style="font-size:26px;font-weight:800;color:#f59e0b">${r.average || '—'}</div>
+            <div style="font-size:16px;color:#fbbf24">${r.average ? '★'.repeat(Math.round(r.average)) + '☆'.repeat(5 - Math.round(r.average)) : ''}</div>
+            <div style="font-size:12px;color:var(--text-muted)">Điểm trung bình câu hỏi</div>
+          </div>
+        `;
+
         if (r.distribution) {
+          // r.distribution is ordered 5 -> 1
           r.distribution.forEach(d => {
-            const pct = r.total_responses ? ((d.count / r.total_responses) * 100).toFixed(0) : 0;
-            body += `<div class="result-bar-wrap">
-              <div class="result-bar-label"><span>⭐ ${d.value} sao (${d.count})</span><span>${pct}%</span></div>
-              <div class="result-bar"><div class="result-bar-fill" style="width:${pct}%;background:var(--grad-gold)"></div></div>
-            </div>`;
+            const hasReviewers = d.count > 0 && d.reviewers && d.reviewers.length > 0;
+            const drilldownId = `drilldown-${r.question_id}-${d.value}`;
+
+            html += `
+              <div class="result-bar-wrap" style="margin-bottom:8px">
+                <div class="result-bar-label ${hasReviewers ? 'drilldown-trigger' : ''}" 
+                     ${hasReviewers ? `onclick="toggleSurveyDrilldown('${drilldownId}')" title="Nhấp để xem danh sách khách hàng đã đánh giá ${d.value} sao"` : ''}>
+                  <span style="display:flex;align-items:center;gap:6px">
+                    <span>⭐ ${d.value} sao (<strong>${d.count}</strong>)</span>
+                    ${hasReviewers ? `<span style="font-size:11px;color:var(--green-700);font-weight:600">👥 Xem ai đánh giá ▾</span>` : ''}
+                  </span>
+                  <span style="font-weight:600">${d.percent}%</span>
+                </div>
+                <div class="result-bar">
+                  <div class="result-bar-fill" style="width:${d.percent}%;background:${getStarColor(d.value)}"></div>
+                </div>
+
+                ${hasReviewers ? `
+                  <div id="${drilldownId}" class="drilldown-panel" style="display:none">
+                    <div style="font-size:11px;font-weight:700;color:var(--text-muted);display:flex;justify-content:space-between">
+                      <span>👥 Khách hàng đánh giá ${d.value} sao (${d.reviewers.length}):</span>
+                      <span>🕒 Thời gian nộp</span>
+                    </div>
+                    ${d.reviewers.map(rev => `
+                      <div class="drilldown-reviewer-row">
+                        <div style="display:flex;align-items:center;gap:8px">
+                          <strong style="color:var(--text-primary)">${escapeHtml(rev.full_name)}</strong>
+                          <span class="tag" style="font-size:10px;background:rgba(45,106,79,0.1);color:var(--green-700)">🧴 ${escapeHtml(rev.skin_type || 'Chưa rõ da')}</span>
+                          <span class="tag" style="font-size:10px;background:rgba(59,130,246,0.1);color:#2563eb">🎂 ${rev.age ? `${rev.age} tuổi` : '—'}</span>
+                          ${rev.phone || rev.email ? `<span style="font-size:11px;color:var(--text-muted)">(${escapeHtml(rev.phone || rev.email)})</span>` : ''}
+                        </div>
+                        <div style="font-size:11px;color:var(--text-muted)">
+                          ${formatDateTime(rev.submitted_at)}
+                        </div>
+                      </div>
+                    `).join('')}
+                  </div>
+                ` : ''}
+              </div>
+            `;
           });
         }
       } else if (r.distribution) {
-        r.distribution.forEach(d => {
-          body += `<div class="result-bar-wrap">
-            <div class="result-bar-label"><span>${d.label} (${d.count})</span><span>${d.percent}%</span></div>
-            <div class="result-bar"><div class="result-bar-fill" style="width:${d.percent}%"></div></div>
-          </div>`;
+        // SINGLE_CHOICE or MULTI_CHOICE
+        r.distribution.forEach((d, dIdx) => {
+          const hasReviewers = d.count > 0 && d.reviewers && d.reviewers.length > 0;
+          const drilldownId = `drilldown-choice-${r.question_id}-${dIdx}`;
+
+          html += `
+            <div class="result-bar-wrap" style="margin-bottom:8px">
+              <div class="result-bar-label ${hasReviewers ? 'drilldown-trigger' : ''}" 
+                   ${hasReviewers ? `onclick="toggleSurveyDrilldown('${drilldownId}')" title="Nhấp để xem khách hàng chọn phương án này"` : ''}>
+                <span style="display:flex;align-items:center;gap:6px">
+                  <span>${escapeHtml(d.label)} (<strong>${d.count}</strong>)</span>
+                  ${hasReviewers ? `<span style="font-size:11px;color:var(--green-700);font-weight:600">👥 Xem ai chọn ▾</span>` : ''}
+                </span>
+                <span style="font-weight:600">${d.percent}%</span>
+              </div>
+              <div class="result-bar">
+                <div class="result-bar-fill" style="width:${d.percent}%;background:var(--green-600)"></div>
+              </div>
+
+              ${hasReviewers ? `
+                <div id="${drilldownId}" class="drilldown-panel" style="display:none">
+                  <div style="font-size:11px;font-weight:700;color:var(--text-muted);display:flex;justify-content:space-between">
+                    <span>👥 Khách hàng chọn phương án này (${d.reviewers.length}):</span>
+                    <span>🕒 Thời gian</span>
+                  </div>
+                  ${d.reviewers.map(rev => `
+                    <div class="drilldown-reviewer-row">
+                      <div style="display:flex;align-items:center;gap:8px">
+                        <strong style="color:var(--text-primary)">${escapeHtml(rev.full_name)}</strong>
+                        <span class="tag" style="font-size:10px;background:rgba(45,106,79,0.1);color:var(--green-700)">🧴 ${escapeHtml(rev.skin_type || 'Chưa rõ da')}</span>
+                        <span class="tag" style="font-size:10px;background:rgba(59,130,246,0.1);color:#2563eb">🎂 ${rev.age ? `${rev.age} tuổi` : '—'}</span>
+                        ${rev.phone || rev.email ? `<span style="font-size:11px;color:var(--text-muted)">(${escapeHtml(rev.phone || rev.email)})</span>` : ''}
+                      </div>
+                      <div style="font-size:11px;color:var(--text-muted)">
+                        ${formatDateTime(rev.submitted_at)}
+                      </div>
+                    </div>
+                  `).join('')}
+                </div>
+              ` : ''}
+            </div>
+          `;
         });
       } else if (r.text_answers && r.text_answers.length > 0) {
-        body += `<div style="display:flex;flex-direction:column;gap:6px">`;
+        html += `<div style="display:flex;flex-direction:column;gap:8px;margin-top:6px">`;
         r.text_answers.forEach(ans => {
-          body += `<div style="background:rgba(244,63,94,0.06);border-left:3px solid var(--rose-500);padding:8px 12px;border-radius:0 8px 8px 0;font-size:13px;color:var(--text-secondary)">"${ans}"</div>`;
+          html += `
+            <div style="background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--green-600);border-radius:6px;padding:10px 12px">
+              <div style="font-size:13px;color:var(--text-primary);line-height:1.5;margin-bottom:6px">
+                "${escapeHtml(ans.text)}"
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--text-muted);flex-wrap:wrap;gap:6px">
+                <div style="display:flex;align-items:center;gap:6px">
+                  <strong style="color:var(--text-primary)">${escapeHtml(ans.full_name)}</strong>
+                  <span class="tag" style="font-size:10px">🧴 ${escapeHtml(ans.skin_type || '—')}</span>
+                  <span class="tag" style="font-size:10px">🎂 ${ans.age ? `${ans.age} tuổi` : '—'}</span>
+                  ${ans.email || ans.phone ? `<span>· ${escapeHtml(ans.email || ans.phone)}</span>` : ''}
+                </div>
+                <div>🕒 ${formatDateTime(ans.submitted_at)}</div>
+              </div>
+            </div>
+          `;
         });
-        body += `</div>`;
+        html += `</div>`;
+      } else {
+        html += `<div style="color:var(--text-muted);font-size:12px;font-style:italic">Chưa có câu trả lời cho câu hỏi này</div>`;
       }
-      body += `</div>`;
+
+      html += `</div>`;
     });
+    html += `</div>`;
+    container.innerHTML = html;
+    return;
+  }
 
-    if (results.length === 0) body += `<div class="page-empty"><div class="empty-icon">📊</div><p>Chưa có dữ liệu kết quả</p></div>`;
+  // TAB 2: KHÁCH HÀNG ĐÃ THAM GIA
+  if (activeSurveyResultTab === 'respondents') {
+    if (respondents.length === 0) {
+      container.innerHTML = `
+        <div class="page-empty" style="padding:40px 20px">
+          <div class="empty-icon">👤</div>
+          <p>Chưa có khách hàng nào hoàn thành khảo sát này.</p>
+        </div>
+      `;
+      return;
+    }
 
-    document.getElementById('modal-body').innerHTML = body;
-  } catch (e) {
-    document.getElementById('modal-body').innerHTML = `<p class="error-msg">${e.message}</p>`;
+    let html = `
+      <div style="margin-bottom:10px;font-size:12px;color:var(--text-muted)">
+        Hiển thị <strong>${respondents.length}</strong> khách hàng đã nộp bài khảo sát:
+      </div>
+      <div class="table-wrapper" style="max-height:60vh;overflow-y:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>KHÁCH HÀNG</th>
+              <th>PHÂN KHÚC CRM</th>
+              <th>ĐIỂM TB PHIẾU</th>
+              <th>THỜI GIAN NỘP</th>
+              <th style="text-align:center">CHI TIẾT CÂU TRẢ LỜI</th>
+              <th>NGHIỆP VỤ CSKH</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${respondents.map(r => {
+              const contact = [r.email, r.phone].filter(Boolean).join(' · ');
+              let cskhBadge = '<span class="badge badge-pending">⚡ Bình thường</span>';
+              if (r.cskh_status === 'CARE_NEEDED') {
+                cskhBadge = `
+                  <div style="display:flex;align-items:center;gap:6px">
+                    <span class="badge" style="background:rgba(239,68,68,0.15);color:#ef4444;font-weight:700">⚠️ Cần chăm sóc</span>
+                    <button class="btn btn-primary btn-sm" onclick="closeModal(); navigate('manager-feedbacks');" style="font-size:10px;padding:2px 6px" title="Chuyển đến màn hình CSKH">
+                      💬 CSKH
+                    </button>
+                  </div>
+                `;
+              } else if (r.cskh_status === 'SATISFIED') {
+                cskhBadge = '<span class="badge badge-replied">✅ Hài lòng</span>';
+              }
+
+              return `
+                <tr>
+                  <td>
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <div class="user-avatar" style="width:28px;height:28px;font-size:11px">
+                        ${r.full_name ? r.full_name.charAt(0) : 'U'}
+                      </div>
+                      <div>
+                        <strong>${escapeHtml(r.full_name)}</strong>
+                        ${contact ? `<div style="font-size:11px;color:var(--text-muted)">${escapeHtml(contact)}</div>` : ''}
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <div style="display:flex;gap:4px;flex-wrap:wrap">
+                      <span class="tag" style="font-size:10px;background:rgba(45,106,79,0.1);color:var(--green-700)">🧴 ${escapeHtml(r.skin_type || 'Chưa rõ')}</span>
+                      <span class="tag" style="font-size:10px;background:rgba(59,130,246,0.1);color:#2563eb">🎂 ${r.age ? `${r.age}t` : '—'}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span style="font-weight:700;color:#f59e0b">⭐ ${r.avg_rating || '—'}</span>
+                    <span style="font-size:11px;color:var(--text-muted)">/ 5</span>
+                  </td>
+                  <td style="font-size:12px;color:var(--text-muted)">
+                    ${formatDateTime(r.submitted_at)}
+                  </td>
+                  <td style="text-align:center">
+                    <button class="btn btn-secondary btn-sm" onclick="toggleRespondentDetail(${r.customer_id})">
+                      👁️ Xem câu trả lời (${r.answers.length}) ▾
+                    </button>
+                  </td>
+                  <td>${cskhBadge}</td>
+                </tr>
+                <tr id="resp-detail-${r.customer_id}" style="display:none;background:var(--bg-input)">
+                  <td colspan="6" style="padding:14px">
+                    <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:8px">
+                      📝 Toàn bộ câu trả lời của "${escapeHtml(r.full_name)}":
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:8px">
+                      ${r.answers.map((ans, aIdx) => `
+                        <div style="background:var(--bg-card-solid);border:1px solid var(--border);border-radius:6px;padding:8px 12px">
+                          <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:4px">
+                            ${cleanQuestionTitle(ans.question_text, aIdx)}
+                          </div>
+                          <div style="font-size:12px;color:${ans.question_type === 'RATING' ? '#d97706' : 'var(--text-secondary)'};font-weight:${ans.question_type === 'RATING' ? '700' : '400'}">
+                            ${ans.question_type === 'RATING' ? `⭐ ${ans.answer_value} sao / 5` : `👉 "${escapeHtml(ans.answer_value || '(Chưa điền)')}"`}
+                          </div>
+                        </div>
+                      `).join('')}
+                    </div>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+    container.innerHTML = html;
+    return;
+  }
+
+  // TAB 3: DANH SÁCH NGƯỜI NHẬN & NHẮC NHỞ
+  if (activeSurveyResultTab === 'recipients') {
+    let html = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px">
+        <div style="font-size:12px;color:var(--text-muted)">
+          Tổng số <strong>${recipients.length}</strong> người nhận (${stats.pending_count} chưa hoàn thành)
+        </div>
+        <button class="btn btn-warning btn-sm" onclick="sendSurveyReminder(${survey.id}, null, true)" ${stats.pending_count === 0 ? 'disabled' : ''}>
+          🔔 Nhắc nhở tất cả người chưa làm (${stats.pending_count})
+        </button>
+      </div>
+
+      <div class="table-wrapper" style="max-height:60vh;overflow-y:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>KHÁCH HÀNG</th>
+              <th>PHÂN KHÚC CRM</th>
+              <th>KÊNH NHẬN</th>
+              <th>TRẠNG THÁI</th>
+              <th style="text-align:center">HÀNH ĐỘNG</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${recipients.map(r => {
+              const contact = [r.email, r.phone].filter(Boolean).join(' · ');
+              return `
+                <tr>
+                  <td>
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <div class="user-avatar" style="width:28px;height:28px;font-size:11px">
+                        ${r.full_name ? r.full_name.charAt(0) : 'U'}
+                      </div>
+                      <div>
+                        <strong>${escapeHtml(r.full_name)}</strong>
+                        ${contact ? `<div style="font-size:11px;color:var(--text-muted)">${escapeHtml(contact)}</div>` : ''}
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <div style="display:flex;gap:4px;flex-wrap:wrap">
+                      <span class="tag" style="font-size:10px;background:rgba(45,106,79,0.1);color:var(--green-700)">🧴 ${escapeHtml(r.skin_type || 'Chưa rõ')}</span>
+                      <span class="tag" style="font-size:10px;background:rgba(59,130,246,0.1);color:#2563eb">🎂 ${r.age ? `${r.age}t` : '—'}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span class="tag" style="font-size:11px">📱 In-App Web</span>
+                  </td>
+                  <td>
+                    ${r.already_submitted
+                      ? `<span class="badge badge-replied">✅ Đã hoàn thành</span>`
+                      : `<span class="badge badge-pending" style="background:rgba(245,158,11,0.15);color:#d97706">⏳ Chưa tham gia</span>`
+                    }
+                  </td>
+                  <td style="text-align:center">
+                    ${!r.already_submitted ? `
+                      <button class="btn btn-secondary btn-sm" onclick="sendSurveyReminder(${survey.id}, ${r.customer_id}, false, '${escapeHtml(r.full_name).replace(/'/g, "\\'")}')">
+                        🔔 Gửi nhắc nhở
+                      </button>
+                    ` : `
+                      <span style="font-size:11px;color:var(--text-muted)">Nộp lúc ${formatDateTime(r.submitted_at)}</span>
+                    `}
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+    container.innerHTML = html;
   }
 }
 
