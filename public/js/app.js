@@ -59,6 +59,29 @@ function renderStars(r) {
   return '★'.repeat(r) + '☆'.repeat(5 - r);
 }
 
+function toggleInputVisibility(inputId, btn) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  if (input.type === 'password') {
+    input.type = 'text';
+    if (btn) btn.textContent = '👁️';
+  } else {
+    input.type = 'password';
+    if (btn) btn.textContent = '🙈';
+  }
+}
+
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+
 function roleBadge(role) {
   const map = { ADMIN: 'badge-admin', MANAGER: 'badge-manager', CUSTOMER: 'badge-customer' };
   const label = { ADMIN: '👑 Admin', MANAGER: '📊 Manager', CUSTOMER: '🛍️ Khách hàng' };

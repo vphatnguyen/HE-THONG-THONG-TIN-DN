@@ -3,21 +3,11 @@
    ============================================================ */
 
 // ========== ADMIN: ACCOUNTS ==========
-async function renderAdminAccounts() {
-  setPageHeader('👥 Quản lý Tài khoản', 'Phân quyền và quản lý toàn bộ người dùng hệ thống',
-    `<button class="btn btn-primary" onclick="openCreateAccountModal()">➕ Thêm tài khoản</button>`);
-  showLoading();
-  try {
-    const accounts = await api('GET', '/api/admin/accounts');
-    renderAccountsTable(accounts);
-  } catch (e) { toast(e.message, 'error'); }
-}
-
 let currentAccountsList = [];
 let allAccountsList = [];
 
 async function renderAdminAccounts() {
-  setPageHeader('👥 Quản lý Tài khoản', 'Phân quyền và quản lý toàn bộ người dùng hệ thống',
+  setPageHeader('👥 Quản lý Tài khoản Nội bộ', 'Phân quyền và quản lý tài khoản quản trị nội bộ (Admin, Manager)',
     `<button class="btn btn-primary" onclick="openCreateAccountModal()">➕ Thêm tài khoản</button>`);
   showLoading();
   try {
@@ -43,11 +33,11 @@ function renderAccountsTable(accounts, searchParams = {}) {
     <div class="filter-bar">
       <input type="text" id="acc-search" placeholder="🔍 Tìm tên, username, email..." value="${searchParams.search || ''}">
       <select id="acc-role">
-        <option value="">Tất cả vai trò</option>
+        <option value="">Tất cả vai trò nội bộ</option>
         <option value="ADMIN" ${searchParams.role === 'ADMIN' ? 'selected' : ''}>👑 Admin</option>
         <option value="MANAGER" ${searchParams.role === 'MANAGER' ? 'selected' : ''}>📊 Manager</option>
-        <option value="CUSTOMER" ${searchParams.role === 'CUSTOMER' ? 'selected' : ''}>🛍️ Khách hàng</option>
       </select>
+
       <select id="acc-status">
         <option value="">Tất cả trạng thái</option>
         <option value="ACTIVE" ${searchParams.status === 'ACTIVE' ? 'selected' : ''}>Hoạt động</option>
@@ -59,11 +49,11 @@ function renderAccountsTable(accounts, searchParams = {}) {
     <div class="table-wrapper">
       <table>
         <thead><tr>
-          <th>ID</th><th>Họ và tên</th><th>Tên đăng nhập</th><th>Email</th><th>Số ĐT</th>
+          <th>ID</th><th>Họ và tên</th><th>Email</th><th>Số ĐT</th>
           <th>Vai trò</th><th>Trạng thái</th><th>Ngày tạo</th><th>Hành động</th>
         </tr></thead>
         <tbody>
-          ${accounts.length === 0 ? `<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:40px">Không tìm thấy tài khoản nào</td></tr>` : accounts.map(a => {
+          ${accounts.length === 0 ? `<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:40px">Không tìm thấy tài khoản nào</td></tr>` : accounts.map(a => {
             const isCurrentUser = currentUserId && Number(a.id) === currentUserId;
             const isOnlyAdmin = a.role === 'ADMIN' && totalAdmins <= 1;
 
@@ -77,28 +67,27 @@ function renderAccountsTable(accounts, searchParams = {}) {
             }
 
             return `
-            <tr>
+            <tr class="row-clickable" title="💡 Nhấp đúp (Double-click) để xem và sửa thông tin" ondblclick="openEditAccountModalById(${a.id})">
               <td><span style="color:var(--text-muted)">#${a.id}</span></td>
-              <td><strong>${a.full_name}</strong></td>
-              <td><code style="color:var(--rose-300)">@${a.username}</code></td>
+              <td><strong>${a.full_name}</strong>${isCurrentUser ? ' <span style="font-size:10px;color:var(--text-muted)">(bạn)</span>' : ''}</td>
               <td style="color:var(--text-secondary)">${a.email || '—'}</td>
               <td style="color:var(--text-secondary)">${a.phone || '—'}</td>
               <td>${roleBadge(a.role)}</td>
               <td>${statusBadge(a.status)}</td>
               <td style="color:var(--text-muted);font-size:12px">${formatDate(a.created_at)}</td>
-              <td>
+              <td onclick="event.stopPropagation()">
                 <div style="display:flex;gap:6px">
-                  <button class="btn btn-secondary btn-sm" onclick="openEditAccountModalById(${a.id})">✏️</button>
                   ${deleteBtnHtml}
                 </div>
               </td>
             </tr>
+
           `;
           }).join('')}
         </tbody>
       </table>
     </div>
-    <p style="color:var(--text-muted);font-size:12px;margin-top:10px">Tổng: ${accounts.length} tài khoản</p>
+    <p style="color:var(--text-muted);font-size:12px;margin-top:10px">Tổng: ${accounts.length} tài khoản · 💡 Nhấp đúp (Double-click) vào một dòng để xem và sửa thông tin</p>
   `;
   setPageContent(html);
 }
@@ -118,7 +107,7 @@ async function filterAccounts() {
 }
 
 function openCreateAccountModal() {
-  showModal('➕ Tạo tài khoản mới', `
+  showModal('➕ Tạo tài khoản quản trị nội bộ', `
     <div class="form-row">
       <div class="form-group"><label>Tên đăng nhập *</label><input id="m-username" placeholder="username"></div>
       <div class="form-group"><label>Mật khẩu *</label><input id="m-password" type="password" placeholder="Mật khẩu"></div>
@@ -128,9 +117,8 @@ function openCreateAccountModal() {
       <div class="form-group"><label>Email</label><input id="m-email" type="email" placeholder="email@example.com"></div>
       <div class="form-group"><label>Số điện thoại</label><input id="m-phone" placeholder="0901234567"></div>
     </div>
-    <div class="form-group"><label>Vai trò</label>
+    <div class="form-group"><label>Phân quyền nội bộ</label>
       <select id="m-role">
-        <option value="CUSTOMER">🛍️ Khách hàng</option>
         <option value="MANAGER">📊 Manager</option>
         <option value="ADMIN">👑 Admin</option>
       </select>
@@ -164,28 +152,46 @@ function openEditAccountModal(a) {
     ? allAccountsList.filter(x => x.role === 'ADMIN').length
     : currentAccountsList.filter(x => x.role === 'ADMIN').length;
   const isOnlyAdmin = (a.role === 'ADMIN' && totalAdmins <= 1);
+  const isCurrentUser = state?.user && Number(a.id) === Number(state.user.id);
 
-  showModal(`✏️ Phân quyền: ${a.full_name}`, `
+  showModal(`✏️ Xem & Sửa tài khoản: ${a.full_name}`, `
     ${isOnlyAdmin ? `
       <div style="background:rgba(239, 68, 68, 0.1);border:1px solid rgba(239, 68, 68, 0.3);color:#f87171;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:16px;line-height:1.5">
         ⚠️ <strong>Lưu ý:</strong> Đây là tài khoản <strong>Admin duy nhất</strong> trong hệ thống. Không thể chuyển sang vai trò khác hoặc khóa tài khoản này để bảo đảm quyền quản trị.
       </div>
     ` : ''}
-    <div class="form-group">
-      <label>Vai trò</label>
-      <select id="e-role" ${isOnlyAdmin ? 'disabled title="Không thể đổi vai trò của Admin duy nhất"' : ''}>
-        <option value="CUSTOMER" ${a.role === 'CUSTOMER' ? 'selected' : ''}>🛍️ Khách hàng</option>
-        <option value="MANAGER" ${a.role === 'MANAGER' ? 'selected' : ''}>📊 Manager</option>
-        <option value="ADMIN" ${a.role === 'ADMIN' ? 'selected' : ''}>👑 Admin</option>
-      </select>
+    <div class="form-row">
+      <div class="form-group"><label>Tên đăng nhập *</label><input id="e-username" value="${escapeHtml(a.username || '')}" autocomplete="off"></div>
+      <div class="form-group">
+        <label>Mật khẩu * <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(đang hiển thị)</span></label>
+        <div style="display:flex;gap:6px">
+          <input id="e-password" type="text" value="${escapeHtml(a.password || '')}" autocomplete="off" placeholder="Mật khẩu" style="flex:1">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="toggleInputVisibility('e-password', this)" title="Ẩn/Hiện mật khẩu">👁️</button>
+        </div>
+      </div>
     </div>
-    <div class="form-group">
-      <label>Trạng thái</label>
-      <select id="e-status" ${isOnlyAdmin ? 'disabled title="Không thể khóa tài khoản của Admin duy nhất"' : ''}>
-        <option value="ACTIVE" ${a.status === 'ACTIVE' ? 'selected' : ''}>✓ Hoạt động</option>
-        <option value="LOCKED" ${a.status === 'LOCKED' ? 'selected' : ''}>🔒 Khóa tài khoản</option>
-      </select>
+    <div class="form-group"><label>Họ và tên *</label><input id="e-fullname" value="${escapeHtml(a.full_name || '')}"></div>
+    <div class="form-row">
+      <div class="form-group"><label>Email</label><input id="e-email" type="email" value="${escapeHtml(a.email || '')}"></div>
+      <div class="form-group"><label>Số điện thoại</label><input id="e-phone" value="${escapeHtml(a.phone || '')}"></div>
     </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Phân quyền nội bộ</label>
+        <select id="e-role" ${isOnlyAdmin ? 'disabled title="Không thể đổi vai trò của Admin duy nhất"' : ''}>
+          <option value="MANAGER" ${a.role === 'MANAGER' ? 'selected' : ''}>📊 Manager</option>
+          <option value="ADMIN" ${a.role === 'ADMIN' ? 'selected' : ''}>👑 Admin</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Khóa / Trạng thái</label>
+        <select id="e-status" ${isOnlyAdmin ? 'disabled title="Không thể khóa tài khoản của Admin duy nhất"' : ''}>
+          <option value="ACTIVE" ${a.status === 'ACTIVE' ? 'selected' : ''}>✓ Hoạt động</option>
+          <option value="LOCKED" ${a.status === 'LOCKED' ? 'selected' : ''}>🔒 Khóa tài khoản</option>
+        </select>
+      </div>
+    </div>
+    ${isCurrentUser ? `<p style="font-size:12px;color:var(--text-muted);margin-top:4px">ℹ️ Đây là tài khoản bạn đang đăng nhập. Nếu đổi vai trò hoặc khóa, bạn sẽ bị đăng xuất.</p>` : ''}
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal()">Hủy</button>
       <button class="btn btn-primary" onclick="updateAccount(${a.id})">💾 Lưu thay đổi</button>
@@ -200,8 +206,21 @@ async function updateAccount(id) {
     const acc = currentAccountsList.find(x => Number(x.id) === Number(id));
     const role = roleEl && !roleEl.disabled ? roleEl.value : (acc ? acc.role : 'ADMIN');
     const status = statusEl && !statusEl.disabled ? statusEl.value : (acc ? acc.status : 'ACTIVE');
+    const payload = {
+      username: document.getElementById('e-username').value.trim(),
+      password: document.getElementById('e-password').value,
+      full_name: document.getElementById('e-fullname').value.trim(),
+      email: document.getElementById('e-email').value.trim(),
+      phone: document.getElementById('e-phone').value.trim(),
+      role,
+      status,
+    };
+    if (!payload.username || !payload.full_name) {
+      toast('Tên đăng nhập và họ tên không được để trống', 'error');
+      return;
+    }
 
-    await api('PUT', `/api/admin/accounts/${id}`, { role, status });
+    await api('PUT', `/api/admin/accounts/${id}`, payload);
     toast('Cập nhật tài khoản thành công!', 'success');
     closeModal();
     renderAdminAccounts();
@@ -272,8 +291,8 @@ async function fetchAndRenderProducts(filters) {
         <input type="text" id="prod-search" placeholder="🔍 Tên sản phẩm..." value="${filters.search || ''}">
         <select id="prod-cat">
           <option value="">Tất cả danh mục</option>
-          ${['Son môi','Kem dưỡng da','Serum','Kem chống nắng','Phấn phủ','Sữa rửa mặt','Toner','Mặt nạ']
-            .map(c => `<option value="${c}" ${filters.category === c ? 'selected' : ''}>${c}</option>`).join('')}
+          ${['Son môi', 'Kem dưỡng da', 'Serum', 'Kem chống nắng', 'Phấn phủ', 'Sữa rửa mặt', 'Toner', 'Mặt nạ']
+        .map(c => `<option value="${c}" ${filters.category === c ? 'selected' : ''}>${c}</option>`).join('')}
         </select>
         <select id="prod-supplier">
           <option value="">Tất cả NCC</option>${supplierOptions}
@@ -314,7 +333,7 @@ async function fetchAndRenderProducts(filters) {
                     <span style="font-size:22px">${getCategoryIcon(p.category)}</span>
                     <div>
                       <div style="font-weight:600;max-width:200px">${p.name}</div>
-                      <div style="font-size:11px;color:var(--text-muted)">${p.description ? p.description.substring(0,50)+'...' : ''}</div>
+                      <div style="font-size:11px;color:var(--text-muted)">${p.description ? p.description.substring(0, 50) + '...' : ''}</div>
                     </div>
                   </div>
                 </td>
@@ -331,7 +350,7 @@ async function fetchAndRenderProducts(filters) {
                 <td>
                   <div style="display:flex;gap:6px">
                     <button class="btn btn-secondary btn-sm" onclick="openEditProductModalById(${p.id})">✏️</button>
-                    <button class="btn btn-trash btn-sm" onclick="deleteProduct(${p.id},'${p.name.replace(/'/g,"\\'")}')"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>
+                    <button class="btn btn-trash btn-sm" onclick="deleteProduct(${p.id},'${p.name.replace(/'/g, "\\'")}')"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>
                   </div>
                 </td>
               </tr>
@@ -360,7 +379,7 @@ function applyProductFilters() {
 
 async function openCreateProductModal() {
   const suppliers = await api('GET', '/api/admin/suppliers').catch(() => []);
-  const catOptions = ['Son môi','Kem dưỡng da','Serum','Kem chống nắng','Phấn phủ','Sữa rửa mặt','Toner','Mặt nạ','Mascara','Phấn má hồng']
+  const catOptions = ['Son môi', 'Kem dưỡng da', 'Serum', 'Kem chống nắng', 'Phấn phủ', 'Sữa rửa mặt', 'Toner', 'Mặt nạ', 'Mascara', 'Phấn má hồng']
     .map(c => `<option value="${c}">${c}</option>`).join('');
   const supOptions = suppliers.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
 
@@ -407,7 +426,7 @@ async function createProduct() {
 
 async function openEditProductModal(p) {
   const suppliers = await api('GET', '/api/admin/suppliers').catch(() => []);
-  const catOptions = ['Son môi','Kem dưỡng da','Serum','Kem chống nắng','Phấn phủ','Sữa rửa mặt','Toner','Mặt nạ']
+  const catOptions = ['Son môi', 'Kem dưỡng da', 'Serum', 'Kem chống nắng', 'Phấn phủ', 'Sữa rửa mặt', 'Toner', 'Mặt nạ']
     .map(c => `<option value="${c}" ${p.category === c ? 'selected' : ''}>${c}</option>`).join('');
   const supOptions = suppliers.map(s => `<option value="${s.id}" ${p.supplier_id == s.id ? 'selected' : ''}>${s.name}</option>`).join('');
 
@@ -507,7 +526,7 @@ function renderSuppliersTable(suppliers) {
               <td>
                 <div style="display:flex;gap:6px">
                   <button class="btn btn-secondary btn-sm" onclick="openEditSupplierModalById(${s.id})">✏️</button>
-                  <button class="btn btn-trash btn-sm" onclick="deleteSupplier(${s.id},'${s.name.replace(/'/g,"\\'")}')"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>
+                  <button class="btn btn-trash btn-sm" onclick="deleteSupplier(${s.id},'${s.name.replace(/'/g, "\\'")}')"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>
                 </div>
               </td>
             </tr>
@@ -638,7 +657,7 @@ function renderAdminDatabase() {
         <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">Tạo bản sao lưu toàn bộ cơ sở dữ liệu. Nên thực hiện định kỳ hàng tuần.</p>
         <div class="form-group" style="margin-bottom:14px">
           <label>Tên file backup</label>
-          <input id="backup-filename" value="CosmeticsCRM_FULL_${new Date().toISOString().slice(0,10).replace(/-/g,'')}" placeholder="Tên file">
+          <input id="backup-filename" value="CosmeticsCRM_FULL_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}" placeholder="Tên file">
         </div>
         <button class="btn btn-primary btn-full" onclick="runFullBackup()">🔒 Thực hiện Full Backup</button>
       </div>
@@ -649,7 +668,7 @@ function renderAdminDatabase() {
         <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">Sao lưu các thay đổi phát sinh từ lần Full Backup gần nhất. Thực hiện hàng ngày.</p>
         <div class="form-group" style="margin-bottom:14px">
           <label>Tên file differential</label>
-          <input id="diff-filename" value="CosmeticsCRM_DIFF_${new Date().toISOString().slice(0,10).replace(/-/g,'')}" placeholder="Tên file">
+          <input id="diff-filename" value="CosmeticsCRM_DIFF_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}" placeholder="Tên file">
         </div>
         <button class="btn btn-purple btn-full" onclick="runDiffBackup()">📊 Thực hiện Differential Backup</button>
       </div>
@@ -672,8 +691,8 @@ function renderAdminDatabase() {
         </ol>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>File Full Backup</label><input id="restore-full-file" value="CosmeticsCRM_FULL_${new Date().toISOString().slice(0,10).replace(/-/g,'')}"></div>
-        <div class="form-group"><label>File Differential Backup</label><input id="restore-diff-file" value="CosmeticsCRM_DIFF_${new Date().toISOString().slice(0,10).replace(/-/g,'')}"></div>
+        <div class="form-group"><label>File Full Backup</label><input id="restore-full-file" value="CosmeticsCRM_FULL_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}"></div>
+        <div class="form-group"><label>File Differential Backup</label><input id="restore-diff-file" value="CosmeticsCRM_DIFF_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}"></div>
       </div>
       <button class="btn btn-warning btn-full" onclick="generateRestoreScript()">🚨 Tạo Script Restore</button>
     </div>

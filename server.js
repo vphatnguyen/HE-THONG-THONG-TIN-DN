@@ -8,12 +8,18 @@ const db = require('./database/db');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'cosmetics_crm_secret_2026';
-const BEAUTY_PREFERENCES = new Set(['Trang điểm', 'Chăm sóc da', 'Chống lão hóa', 'Trị mụn', 'Dưỡng ẩm', 'Organic', 'Skincare cơ bản']);
-const BEAUTY_PREFERENCE_ALIASES = { 'Dưỡng da': 'Dưỡng ẩm' };
+const BEAUTY_PREFERENCES = new Set(['Trang điểm', 'Chăm sóc da (Skincare)', 'Chống lão hóa', 'Trị mụn', 'Dưỡng ẩm', 'Organic']);
+const BEAUTY_PREFERENCE_ALIASES = {
+  'Dưỡng da': 'Dưỡng ẩm',
+  'Chăm sóc da': 'Chăm sóc da (Skincare)',
+  'Skincare cơ bản': 'Chăm sóc da (Skincare)',
+  'Chăm sóc da (Skincare)': 'Chăm sóc da (Skincare)'
+};
 
 function normalizeBeautyPreferences(value) {
   return [...new Set(String(value || '').split(',').map(item => BEAUTY_PREFERENCE_ALIASES[item.trim()] || item.trim()).filter(item => BEAUTY_PREFERENCES.has(item)))].join(',');
 }
+
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -222,7 +228,7 @@ app.post('/api/auth/register', async (req, res) => {
 app.get('/api/admin/accounts', authMiddleware, requireRole('ADMIN'), async (req, res) => {
   try {
     const { search, role, status } = req.query;
-    let sql = 'SELECT id, username, full_name, email, phone, role, status, created_at FROM Accounts WHERE 1=1';
+    let sql = "SELECT id, username, password, full_name, email, phone, role, status, created_at FROM Accounts WHERE role IN ('ADMIN', 'MANAGER')";
     const params = [];
     if (search) { sql += ' AND (full_name LIKE ? OR username LIKE ? OR email LIKE ?)'; const s = `%${search}%`; params.push(s, s, s); }
     if (role) { sql += ' AND role = ?'; params.push(role); }
@@ -239,12 +245,10 @@ app.post('/api/admin/accounts', authMiddleware, requireRole('ADMIN'), async (req
   try {
     const { username, password, full_name, email, phone, role } = req.body;
     if (!username || !password || !full_name) return res.status(400).json({ error: 'Thiếu thông tin bắt buộc' });
+    const targetRole = role === 'ADMIN' ? 'ADMIN' : 'MANAGER';
     const existing = await db.prepare('SELECT id FROM Accounts WHERE username = ?').get(username);
     if (existing) return res.status(409).json({ error: 'Tên đăng nhập đã tồn tại' });
-    const result = await insertAccount(username, password, full_name, email, phone, role || 'CUSTOMER');
-    if ((role || 'CUSTOMER') === 'CUSTOMER') {
-      await db.prepare('INSERT INTO Customers (account_id) VALUES (?)').run(result.lastInsertRowid);
-    }
+    const result = await insertAccount(username, password, full_name, email, phone, targetRole);
     res.status(201).json({ message: 'Tạo tài khoản thành công', id: result.lastInsertRowid });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -254,11 +258,16 @@ app.post('/api/admin/accounts', authMiddleware, requireRole('ADMIN'), async (req
 app.put('/api/admin/accounts/:id', authMiddleware, requireRole('ADMIN'), async (req, res) => {
   try {
     const targetId = Number(req.params.id);
-    const { role, status } = req.body;
+    const { username, password, full_name, email, phone, role, status } = req.body;
 
     const targetAccount = await db.prepare('SELECT id, username, role, status FROM Accounts WHERE id = ?').get(targetId);
     if (!targetAccount) {
       return res.status(404).json({ error: 'Tài khoản không tồn tại' });
+    }
+
+    if (username && username !== targetAccount.username) {
+      const existing = await db.prepare('SELECT id FROM Accounts WHERE username = ? AND id != ?').get(username, targetId);
+      if (existing) return res.status(409).json({ error: 'Tên đăng nhập đã tồn tại' });
     }
 
     // Nếu tài khoản đang là ADMIN, ngăn chặn việc hạ quyền hoặc khóa khi chỉ có duy nhất 1 ADMIN
@@ -280,7 +289,18 @@ app.put('/api/admin/accounts/:id', authMiddleware, requireRole('ADMIN'), async (
       }
     }
 
-    await db.prepare('UPDATE Accounts SET role = ?, status = ? WHERE id = ?').run(role, status, targetId);
+    const updates = [];
+    const params = [];
+    if (username) { updates.push('username = ?'); params.push(username); }
+    if (password) { updates.push('password = ?'); params.push(password); }
+    if (full_name) { updates.push('full_name = ?'); params.push(full_name); }
+    updates.push('email = ?'); params.push(email || null);
+    updates.push('phone = ?'); params.push(phone || null);
+    if (role) { updates.push('role = ?'); params.push(role); }
+    if (status) { updates.push('status = ?'); params.push(status); }
+
+    params.push(targetId);
+    await db.prepare(`UPDATE Accounts SET ${updates.join(', ')} WHERE id = ?`).run(...params);
     res.json({ message: 'Cập nhật tài khoản thành công' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -525,7 +545,7 @@ app.get('/api/manager/analytics', authMiddleware, requireRole('MANAGER'), async 
       surveyDateParams.push(toExclusive);
     }
 
-    const ageGroups = await db.prepare(`
+    const rawAgeGroups = await db.prepare(`
       SELECT
         CASE
           WHEN age < 18 THEN N'Dưới 18'
@@ -547,6 +567,11 @@ app.get('/api/manager/analytics', authMiddleware, requireRole('MANAGER'), async 
         END
     `).all(...customerDateParams);
 
+    const standardAgeLabels = ['Dưới 18', '18-24', '25-34', '35-44', '45+'];
+    const ageMap = Object.fromEntries(standardAgeLabels.map(l => [l, 0]));
+    rawAgeGroups.forEach(r => { if (ageMap[r.age_group] !== undefined) ageMap[r.age_group] = Number(r.count); });
+    const ageGroups = standardAgeLabels.map(age_group => ({ age_group, count: ageMap[age_group] }));
+
     const skinTypes = await db.prepare(`SELECT c.skin_type, COUNT(*) as count FROM Customers c WHERE c.skin_type IS NOT NULL${customerDateWhere} GROUP BY c.skin_type ORDER BY count DESC`).all(...customerDateParams);
     const genderGroups = await db.prepare(`SELECT c.gender, COUNT(*) as count FROM Customers c WHERE c.gender IS NOT NULL${customerDateWhere} GROUP BY c.gender ORDER BY count DESC`).all(...customerDateParams);
     const customerProfiles = (await db.prepare(`SELECT c.age, c.skin_type, c.beauty_preferences FROM Customers c WHERE c.beauty_preferences IS NOT NULL${customerDateWhere}`).all(...customerDateParams))
@@ -560,15 +585,16 @@ app.get('/api/manager/analytics', authMiddleware, requireRole('MANAGER'), async 
       ORDER BY YEAR(a.created_at), MONTH(a.created_at)
     `).all(...accountDateParams);
 
-    // Process beauty preferences
+    // Process beauty preferences (sorted descending)
     const allPrefs = customerProfiles;
     const prefCount = {};
     allPrefs.forEach(row => {
       if (row.beauty_preferences) {
         row.beauty_preferences.split(',').forEach(p => {
-          const key = BEAUTY_PREFERENCE_ALIASES[p.trim()] || p.trim();
-          if (!BEAUTY_PREFERENCES.has(key)) return;
-          if (key) prefCount[key] = (prefCount[key] || 0) + 1;
+          const key = p.trim();
+          if (key && BEAUTY_PREFERENCES.has(key)) {
+            prefCount[key] = (prefCount[key] || 0) + 1;
+          }
         });
       }
     });
@@ -579,27 +605,63 @@ app.get('/api/manager/analytics', authMiddleware, requireRole('MANAGER'), async 
     const avgRatingRow = await db.prepare(`SELECT ROUND(AVG(CAST(f.rating AS FLOAT)), 1) as avg FROM Feedbacks f WHERE 1=1${feedbackDateWhere}`).get(...feedbackDateParams);
     const totalFeedbacksRow = await db.prepare(`SELECT COUNT(*) as cnt FROM Feedbacks f WHERE 1=1${feedbackDateWhere}`).get(...feedbackDateParams);
     const repliedFeedbacksRow = await db.prepare(`SELECT COUNT(*) as cnt FROM Feedbacks f WHERE f.status='REPLIED'${feedbackDateWhere}`).get(...feedbackDateParams);
+    const pendingFeedbacksRow = await db.prepare(`SELECT COUNT(*) as cnt FROM Feedbacks f WHERE f.status='PENDING'${feedbackDateWhere}`).get(...feedbackDateParams);
+    const negativeFeedbacksRow = await db.prepare(`SELECT COUNT(*) as cnt FROM Feedbacks f WHERE f.rating <= 2${feedbackDateWhere}`).get(...feedbackDateParams);
+
     const activeSurveysRow = await db.prepare(`SELECT COUNT(*) as cnt FROM Surveys s WHERE s.status='ACTIVE'${surveyDateWhere}`).get(...surveyDateParams);
     const totalSurveyRespRow = await db.prepare(`SELECT COUNT(*) as cnt FROM SurveyResults sr JOIN Surveys s ON s.id = sr.survey_id WHERE 1=1${surveyDateWhere.replaceAll('s.created_at', 'sr.submitted_at')}`).get(...surveyDateParams);
     const surveyRecipientRow = await db.prepare(`SELECT COUNT(*) as cnt FROM SurveyRecipients r JOIN Surveys s ON s.id = r.survey_id WHERE 1=1${surveyDateWhere.replaceAll('s.created_at', 'r.sent_at')}`).get(...surveyDateParams);
-    const feedbackByProduct = await db.prepare(`
-      SELECT p.name AS product_name, COUNT(*) AS count, ROUND(AVG(CAST(f.rating AS FLOAT)), 1) AS average
-      FROM Feedbacks f JOIN Products p ON p.id = f.product_id
+
+    const totalFeedbacks = totalFeedbacksRow?.cnt || 0;
+    const ratingDistRows = await db.prepare(`
+      SELECT rating, COUNT(*) as count 
+      FROM Feedbacks f 
       WHERE 1=1${feedbackDateWhere}
-      GROUP BY p.name ORDER BY average DESC, count DESC
+      GROUP BY rating
     `).all(...feedbackDateParams);
+    const ratingDistribution = [5, 4, 3, 2, 1].map(stars => {
+      const found = ratingDistRows.find(r => Number(r.rating) === stars);
+      const count = found ? Number(found.count) : 0;
+      const percent = totalFeedbacks ? Math.round((count / totalFeedbacks) * 100) : 0;
+      return { stars, count, percent };
+    });
+
+    const feedbackByProduct = await db.prepare(`
+      SELECT p.id AS product_id, p.name AS product_name,
+        COUNT(f.id) AS count,
+        ROUND(AVG(CAST(f.rating AS FLOAT)), 1) AS average,
+        SUM(CASE WHEN f.rating >= 4 THEN 1 ELSE 0 END) AS positive_count,
+        SUM(CASE WHEN f.rating <= 2 THEN 1 ELSE 0 END) AS negative_count,
+        SUM(CASE WHEN f.status = 'REPLIED' THEN 1 ELSE 0 END) AS replied_count,
+        SUM(CASE WHEN f.status = 'PENDING' THEN 1 ELSE 0 END) AS pending_count
+      FROM Products p
+      JOIN Feedbacks f ON p.id = f.product_id
+      WHERE 1=1${feedbackDateWhere}
+      GROUP BY p.id, p.name
+      ORDER BY average DESC, count DESC
+    `).all(...feedbackDateParams);
+
     const surveyOverview = await db.prepare(`
-      SELECT s.id, s.title, s.status,
+      SELECT s.id, s.title, s.status, s.created_at,
         (SELECT COUNT(*) FROM SurveyRecipients r WHERE r.survey_id = s.id) AS recipients,
-        (SELECT COUNT(*) FROM SurveyResults sr WHERE sr.survey_id = s.id) AS responses
+        (SELECT COUNT(*) FROM SurveyResults sr WHERE sr.survey_id = s.id) AS responses,
+        (
+          SELECT ROUND(AVG(CAST(sa.answer_value AS FLOAT)), 1)
+          FROM SurveyAnswers sa
+          JOIN SurveyResults sr2 ON sr2.id = sa.survey_result_id
+          JOIN Questions q ON q.id = sa.question_id
+          WHERE sr2.survey_id = s.id AND q.question_type = 'RATING' AND ISNUMERIC(sa.answer_value) = 1
+        ) AS csat_avg
       FROM Surveys s WHERE 1=1${surveyDateWhere}
       ORDER BY s.created_at DESC
     `).all(...surveyDateParams);
+
     const totalCustomers = totalCustRow?.cnt || 0;
     const lockedCustomers = lockedCustRow?.cnt || 0;
     const avgRating = avgRatingRow?.avg || 0;
-    const totalFeedbacks = totalFeedbacksRow?.cnt || 0;
     const repliedFeedbacks = repliedFeedbacksRow?.cnt || 0;
+    const pendingFeedbacks = pendingFeedbacksRow?.cnt || 0;
+    const negativeFeedbacks = negativeFeedbacksRow?.cnt || 0;
     const activeSurveys = activeSurveysRow?.cnt || 0;
     const totalSurveyResponses = totalSurveyRespRow?.cnt || 0;
     const surveyRecipients = surveyRecipientRow?.cnt || 0;
@@ -609,13 +671,40 @@ app.get('/api/manager/analytics', authMiddleware, requireRole('MANAGER'), async 
       feedbackByProduct, surveyOverview,
       stats: {
         totalCustomers, lockedCustomers, avgRating, totalFeedbacks, repliedFeedbacks,
+        pendingFeedbacks, negativeFeedbacks,
         feedbackReplyRate: totalFeedbacks ? Math.round((repliedFeedbacks / totalFeedbacks) * 100) : 0,
         activeSurveys, totalSurveyResponses, surveyRecipients,
-        surveyResponseRate: surveyRecipients ? Math.round((totalSurveyResponses / surveyRecipients) * 100) : 0
+        surveyResponseRate: surveyRecipients ? Math.round((totalSurveyResponses / surveyRecipients) * 100) : 0,
+        ratingDistribution
       }
     });
   } catch (err) {
     console.error('Analytics error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ========== MANAGER: Chi tiết khách hàng đánh giá một sản phẩm ==========
+app.get('/api/manager/products/:productId/feedbacks', authMiddleware, requireRole('MANAGER'), async (req, res) => {
+  try {
+    const productId = Number(req.params.productId);
+    const product = await db.prepare('SELECT id, name, category, price FROM Products WHERE id = ?').get(productId);
+    if (!product) return res.status(404).json({ error: 'Không tìm thấy sản phẩm' });
+
+    const feedbacks = await db.prepare(`
+      SELECT f.id, f.rating, f.content, f.reply_content, f.status, f.created_at,
+        a.id AS account_id, a.full_name, a.email, a.phone,
+        c.id AS customer_id, c.age, c.gender, c.skin_type, c.beauty_preferences
+      FROM Feedbacks f
+      JOIN Customers c ON f.customer_id = c.id
+      JOIN Accounts a ON c.account_id = a.id
+      WHERE f.product_id = ?
+      ORDER BY f.created_at DESC
+    `).all(productId);
+
+    res.json({ product, feedbacks });
+  } catch (err) {
+    console.error('Product feedbacks error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -659,7 +748,7 @@ app.get('/api/manager/analytics/export', authMiddleware, requireRole('MANAGER'),
 app.get('/api/manager/customers', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
     const { search, skin_type, status } = req.query;
-    let sql = `SELECT a.id, a.username, a.full_name, a.email, a.phone, a.status, a.created_at,
+    let sql = `SELECT a.id, a.username, a.password, a.full_name, a.email, a.phone, a.status, a.created_at,
       c.id as customer_id, c.age, c.gender, c.skin_type, c.beauty_preferences
       FROM Accounts a LEFT JOIN Customers c ON a.id = c.account_id
       WHERE a.role = 'CUSTOMER'`;
@@ -689,6 +778,50 @@ app.post('/api/manager/customers', authMiddleware, requireRole('MANAGER'), async
   }
 });
 
+app.put('/api/manager/customers/:accountId', authMiddleware, requireRole('MANAGER'), async (req, res) => {
+  try {
+    const accountId = Number(req.params.accountId);
+    const { username, password, full_name, email, phone, age, gender, skin_type, status, beauty_preferences } = req.body;
+    const targetAccount = await db.prepare("SELECT id, username FROM Accounts WHERE id = ? AND role = 'CUSTOMER'").get(accountId);
+    if (!targetAccount) return res.status(404).json({ error: 'Khách hàng không tồn tại' });
+
+    if (username && username !== targetAccount.username) {
+      const existing = await db.prepare('SELECT id FROM Accounts WHERE username = ? AND id != ?').get(username, accountId);
+      if (existing) return res.status(409).json({ error: 'Tên đăng nhập đã tồn tại' });
+    }
+
+    const accUpdates = [];
+    const accParams = [];
+    if (username) { accUpdates.push('username = ?'); accParams.push(username); }
+    if (password) { accUpdates.push('password = ?'); accParams.push(password); }
+    if (full_name) { accUpdates.push('full_name = ?'); accParams.push(full_name); }
+    accUpdates.push('email = ?'); accParams.push(email || null);
+    accUpdates.push('phone = ?'); accParams.push(phone || null);
+    if (status) { accUpdates.push('status = ?'); accParams.push(status); }
+    accParams.push(accountId);
+
+    await db.prepare(`UPDATE Accounts SET ${accUpdates.join(', ')} WHERE id = ?`).run(...accParams);
+
+    const custRow = await db.prepare('SELECT id FROM Customers WHERE account_id = ?').get(accountId);
+    if (custRow) {
+      await db.prepare(`
+        UPDATE Customers
+        SET age = ?, gender = ?, skin_type = ?, beauty_preferences = ?
+        WHERE account_id = ?
+      `).run(age || null, gender || null, skin_type || null, normalizeBeautyPreferences(beauty_preferences) || null, accountId);
+    } else {
+      await db.prepare(`
+        INSERT INTO Customers (account_id, age, gender, skin_type, beauty_preferences)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(accountId, age || null, gender || null, skin_type || null, normalizeBeautyPreferences(beauty_preferences) || null);
+    }
+
+    res.json({ message: 'Cập nhật thông tin khách hàng thành công' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.put('/api/manager/customers/:accountId/status', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
     const { status } = req.body;
@@ -701,8 +834,18 @@ app.put('/api/manager/customers/:accountId/status', authMiddleware, requireRole(
 
 app.delete('/api/manager/customers/:accountId', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
-    await db.prepare('DELETE FROM Accounts WHERE id = ? AND role = ?').run(req.params.accountId, 'CUSTOMER');
-    res.json({ message: 'Đã xóa khách hàng' });
+    const accountId = Number(req.params.accountId);
+    // Xóa liên hoàn dữ liệu liên quan đến khách hàng trước
+    const cust = await db.prepare('SELECT id FROM Customers WHERE account_id = ?').get(accountId);
+    if (cust) {
+      await db.prepare('DELETE FROM SurveyAnswers WHERE survey_result_id IN (SELECT id FROM SurveyResults WHERE customer_id = ?)').run(cust.id);
+      await db.prepare('DELETE FROM SurveyResults WHERE customer_id = ?').run(cust.id);
+      await db.prepare('DELETE FROM SurveyRecipients WHERE customer_id = ?').run(cust.id);
+      await db.prepare('DELETE FROM Feedbacks WHERE customer_id = ?').run(cust.id);
+      await db.prepare('DELETE FROM Customers WHERE id = ?').run(cust.id);
+    }
+    await db.prepare("DELETE FROM Accounts WHERE id = ? AND role = 'CUSTOMER'").run(accountId);
+    res.json({ message: 'Đã xóa khách hàng thành công' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -728,6 +871,30 @@ app.get('/api/manager/surveys', authMiddleware, requireRole('MANAGER'), async (r
   }
 });
 
+app.get('/api/manager/surveys/:id', authMiddleware, requireRole('MANAGER'), async (req, res) => {
+  try {
+    const surveyId = Number(req.params.id);
+    const survey = await db.prepare('SELECT * FROM Surveys WHERE id = ?').get(surveyId);
+    if (!survey) return res.status(404).json({ error: 'Không tìm thấy khảo sát' });
+    const questions = await db.prepare('SELECT * FROM Questions WHERE survey_id = ? ORDER BY order_index').all(surveyId);
+    questions.forEach(q => {
+      if (q.options) {
+        try { q.options = JSON.parse(q.options); } catch {}
+      }
+    });
+    const targetProducts = await db.prepare('SELECT product_id FROM SurveyProducts WHERE survey_id = ?').all(surveyId);
+    const recipientRows = await db.prepare('SELECT customer_id FROM SurveyRecipients WHERE survey_id = ?').all(surveyId);
+    res.json({
+      ...survey,
+      target_product_ids: targetProducts.map(p => p.product_id),
+      recipient_customer_ids: recipientRows.map(r => r.customer_id),
+      questions
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/manager/surveys', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
     const { title, description, target_product_ids, start_date, end_date, questions, recipient_customer_ids } = req.body;
@@ -748,6 +915,72 @@ app.post('/api/manager/surveys', authMiddleware, requireRole('MANAGER'), async (
     }
     const recipientCount = await assignSurveyRecipients(surveyResult.lastInsertRowid, recipient_customer_ids, req.user.id);
     res.status(201).json({ message: 'Tạo khảo sát thành công', id: surveyResult.lastInsertRowid, recipient_count: recipientCount });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/manager/surveys/:id', authMiddleware, requireRole('MANAGER'), async (req, res) => {
+  try {
+    const surveyId = Number(req.params.id);
+    const { title, description, target_product_ids, start_date, end_date, status, questions, recipient_customer_ids } = req.body;
+    if (!title) return res.status(400).json({ error: 'Tiêu đề khảo sát là bắt buộc' });
+    if (!target_product_ids || !Array.isArray(target_product_ids) || target_product_ids.length === 0) {
+      return res.status(400).json({ error: 'Vui lòng chọn ít nhất một sản phẩm' });
+    }
+
+    const existing = await db.prepare('SELECT id FROM Surveys WHERE id = ?').get(surveyId);
+    if (!existing) return res.status(404).json({ error: 'Không tìm thấy khảo sát' });
+
+    // Cập nhật Surveys
+    await db.prepare(`
+      UPDATE Surveys 
+      SET title = ?, description = ?, start_date = ?, end_date = ?, status = COALESCE(?, status)
+      WHERE id = ?
+    `).run(title, description || null, start_date || null, end_date || null, status || null, surveyId);
+
+    // Cập nhật SurveyProducts
+    await db.prepare('DELETE FROM SurveyProducts WHERE survey_id = ?').run(surveyId);
+    for (const pid of target_product_ids) {
+      await db.prepare('INSERT INTO SurveyProducts (survey_id, product_id) VALUES (?, ?)').run(surveyId, pid);
+    }
+
+    // Cập nhật Questions nếu có
+    if (questions && Array.isArray(questions)) {
+      await db.prepare('DELETE FROM Questions WHERE survey_id = ?').run(surveyId);
+      for (let i = 0; i < questions.length; i++) {
+        const q = questions[i];
+        await db.prepare('INSERT INTO Questions (survey_id, question_text, question_type, options, order_index) VALUES (?, ?, ?, ?, ?)').run(surveyId, q.question_text, q.question_type, q.options ? JSON.stringify(q.options) : null, i + 1);
+      }
+    }
+
+    // Cập nhật người nhận nếu có
+    if (recipient_customer_ids && Array.isArray(recipient_customer_ids)) {
+      await db.prepare('DELETE FROM SurveyRecipients WHERE survey_id = ?').run(surveyId);
+      await assignSurveyRecipients(surveyId, recipient_customer_ids, req.user.id);
+    }
+
+    res.json({ message: 'Cập nhật khảo sát thành công' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/manager/surveys/:id', authMiddleware, requireRole('MANAGER'), async (req, res) => {
+  try {
+    const surveyId = Number(req.params.id);
+    const existing = await db.prepare('SELECT id, title FROM Surveys WHERE id = ?').get(surveyId);
+    if (!existing) return res.status(404).json({ error: 'Không tìm thấy khảo sát' });
+
+    // Xóa liên hoàn câu trả lời, kết quả, người nhận, sản phẩm, câu hỏi, khảo sát
+    await db.prepare('DELETE FROM SurveyAnswers WHERE survey_result_id IN (SELECT id FROM SurveyResults WHERE survey_id = ?)').run(surveyId);
+    await db.prepare('DELETE FROM SurveyResults WHERE survey_id = ?').run(surveyId);
+    await db.prepare('DELETE FROM SurveyRecipients WHERE survey_id = ?').run(surveyId);
+    await db.prepare('DELETE FROM SurveyProducts WHERE survey_id = ?').run(surveyId);
+    await db.prepare('DELETE FROM Questions WHERE survey_id = ?').run(surveyId);
+    await db.prepare('DELETE FROM Surveys WHERE id = ?').run(surveyId);
+
+    res.json({ message: `Đã xóa khảo sát "${existing.title}" thành công` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -908,7 +1141,15 @@ app.put('/api/customer/profile', authMiddleware, requireRole('CUSTOMER'), async 
 // ========== CUSTOMER: Products ==========
 app.get('/api/customer/products', authMiddleware, requireRole('CUSTOMER'), async (req, res) => {
   try {
-    const products = await db.prepare("SELECT p.*, s.name as supplier_name FROM Products p LEFT JOIN Suppliers s ON p.supplier_id = s.id ORDER BY p.launch_status DESC, p.created_at DESC").all();
+    const customer = await db.prepare('SELECT id FROM Customers WHERE account_id = ?').get(req.user.id);
+    const customerId = customer ? customer.id : 0;
+    const products = await db.prepare(`
+      SELECT p.*, s.name as supplier_name,
+        CASE WHEN EXISTS (SELECT 1 FROM Feedbacks f WHERE f.customer_id = ? AND f.product_id = p.id) THEN 1 ELSE 0 END AS already_reviewed
+      FROM Products p 
+      LEFT JOIN Suppliers s ON p.supplier_id = s.id 
+      ORDER BY p.launch_status DESC, p.created_at DESC
+    `).all(customerId);
     res.json(products);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -995,8 +1236,15 @@ app.post('/api/customer/feedbacks', authMiddleware, requireRole('CUSTOMER'), asy
     if (!customer) return res.status(400).json({ error: 'Không tìm thấy hồ sơ khách hàng' });
     const { product_id, rating, content } = req.body;
     if (!product_id || !rating) return res.status(400).json({ error: 'Thiếu thông tin sản phẩm hoặc đánh giá' });
+    
+    // Kiểm tra khách hàng đã đánh giá sản phẩm này chưa (chỉ được 1 lần)
+    const existing = await db.prepare('SELECT id FROM Feedbacks WHERE customer_id = ? AND product_id = ?').get(customer.id, product_id);
+    if (existing) {
+      return res.status(409).json({ error: 'Bạn đã đánh giá sản phẩm này rồi. Mỗi sản phẩm chỉ được gửi đánh giá 1 lần.' });
+    }
+
     await db.prepare('INSERT INTO Feedbacks (customer_id, product_id, rating, content) VALUES (?, ?, ?, ?)').run(customer.id, product_id, rating, content || null);
-    res.status(201).json({ message: 'Gửi phản hồi thành công! Cảm ơn bạn.' });
+    res.status(201).json({ message: 'Gửi đánh giá thành công! Cảm ơn bạn.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

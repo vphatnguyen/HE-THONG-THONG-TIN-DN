@@ -97,14 +97,17 @@ async function renderCustomerHome() {
         <h3 style="font-size:15px;font-weight:700;margin-bottom:16px">💄 Khám phá sản phẩm</h3>
         <div class="products-grid">
           ${products.filter(p => p.launch_status === 'OFFICIAL').slice(0, 8).map(p => `
-            <div class="product-card" onclick="openFeedbackModal(${p.id},'${p.name.replace(/'/g,"\\'")}')">
+            <div class="product-card" onclick="${p.already_reviewed ? "toast('Bạn đã gửi đánh giá cho sản phẩm này rồi!', 'info')" : `openFeedbackModal(${p.id},'${p.name.replace(/'/g, "\\'")}')`}">
               <div class="product-card-img">${getCategoryIcon(p.category)}</div>
               <div class="product-card-body">
                 <div class="product-card-cat">${p.category}</div>
                 <div class="product-card-name">${p.name}</div>
                 <div class="product-card-price">${formatCurrency(p.price)}</div>
                 <div style="margin-top:8px">
-                  <button class="btn btn-secondary btn-sm" style="width:100%;font-size:11px" onclick="openFeedbackModal(${p.id},'${p.name.replace(/'/g,"\\'")}');event.stopPropagation()">💬 Gửi đánh giá</button>
+                  ${p.already_reviewed 
+                    ? `<button class="btn btn-secondary btn-sm" style="width:100%;font-size:11px;opacity:0.85;cursor:default" disabled>✅ Đã đánh giá</button>`
+                    : `<button class="btn btn-secondary btn-sm" style="width:100%;font-size:11px" onclick="openFeedbackModal(${p.id},'${p.name.replace(/'/g, "\\'")}');event.stopPropagation()">💬 Gửi đánh giá</button>`
+                  }
                 </div>
               </div>
             </div>
@@ -144,9 +147,9 @@ async function renderCustomerSurveys() {
             </div>
             <div class="survey-actions">
               ${s.already_submitted > 0
-                ? `<span class="badge badge-active">✅ Đã hoàn thành</span>`
-                : `<button class="btn btn-primary btn-sm" onclick="startSurvey(${s.id})">▶️ Làm khảo sát</button>`
-              }
+        ? `<span class="badge badge-active">✅ Đã hoàn thành</span>`
+        : `<button class="btn btn-primary btn-sm" onclick="startSurvey(${s.id})">▶️ Làm khảo sát</button>`
+      }
             </div>
           </div>
         `).join('')}
@@ -341,8 +344,8 @@ async function renderCustomerFeedback() {
               <div style="display:flex;align-items:center;gap:8px">
                 <div class="stars" style="color:#fbbf24">${renderStars(f.rating)}</div>
                 ${f.status === 'REPLIED'
-                  ? `<span class="badge badge-replied">✅ Đã được phản hồi</span>`
-                  : `<span class="badge badge-pending">🕐 Chờ phản hồi</span>`}
+        ? `<span class="badge badge-replied">✅ Đã được phản hồi</span>`
+        : `<span class="badge badge-pending">🕐 Chờ phản hồi</span>`}
               </div>
             </div>
             <p class="feedback-content">${f.content || '(Không có nội dung)'}</p>
@@ -363,18 +366,26 @@ async function renderCustomerFeedback() {
 async function openNewFeedbackModal() {
   const products = await api('GET', '/api/customer/products').catch(() => []);
   const official = products.filter(p => p.launch_status === 'OFFICIAL');
-  const options = official.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  const availableCount = official.filter(p => !p.already_reviewed).length;
+  const options = official.map(p => `
+    <option value="${p.id}" ${p.already_reviewed ? 'disabled style="color:var(--text-muted)"' : ''}>
+      ${p.name} ${p.already_reviewed ? '(✅ Đã đánh giá)' : ''}
+    </option>
+  `).join('');
 
   showModal('💬 Gửi đánh giá sản phẩm', `
     <div class="form-group">
-      <label>Chọn sản phẩm *</label>
-      <select id="fb-product"><option value="">-- Chọn sản phẩm --</option>${options}</select>
+      <label>Chọn sản phẩm * <span style="font-size:11px;color:var(--text-muted);font-weight:400">(mỗi sản phẩm chỉ đánh giá 1 lần)</span></label>
+      <select id="fb-product">
+        <option value="">-- Chọn sản phẩm ${availableCount > 0 ? `(${availableCount} sản phẩm chưa đánh giá)` : ''} --</option>
+        ${options}
+      </select>
     </div>
     <div class="form-group">
       <label>Đánh giá của bạn *</label>
       <div style="display:flex;align-items:center;gap:14px;padding:6px 0">
         <div style="display:flex;gap:8px" onmouseleave="resetFeedbackStar()">
-          ${[1,2,3,4,5].map(n => `
+          ${[1, 2, 3, 4, 5].map(n => `
             <span id="fb-star-${n}" 
                   style="cursor:pointer;font-size:36px;color:#94a3b8;transition:all 0.15s ease;user-select:none;display:inline-block" 
                   title="${n} sao"
@@ -397,7 +408,13 @@ async function openNewFeedbackModal() {
   `);
 }
 
-function openFeedbackModal(productId, productName) {
+async function openFeedbackModal(productId, productName) {
+  const products = await api('GET', '/api/customer/products').catch(() => []);
+  const target = products.find(p => Number(p.id) === Number(productId));
+  if (target && target.already_reviewed) {
+    toast(`Bạn đã gửi đánh giá cho sản phẩm "${productName || target.name}" rồi!`, 'info');
+    return;
+  }
   openNewFeedbackModal().then(() => {
     const sel = document.getElementById('fb-product');
     if (sel) sel.value = productId;
@@ -463,7 +480,7 @@ async function renderCustomerProfile() {
   showLoading();
   try {
     const { account, customer } = await api('GET', '/api/customer/profile');
-    const skinOptions = ['Da dầu','Da khô','Da hỗn hợp','Da nhạy cảm','Da thường'];
+    const skinOptions = ['Da dầu', 'Da khô', 'Da hỗn hợp', 'Da nhạy cảm', 'Da thường'];
     const beautyPrefsOptions = BEAUTY_PREFERENCE_OPTIONS;
 
     const currentPrefs = (customer?.beauty_preferences || '').split(',').map(p => p.trim()).filter(Boolean);
@@ -513,7 +530,7 @@ async function renderCustomerProfile() {
               <label>Sở thích làm đẹp</label>
               <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px">
                 ${beautyPrefsOptions.map(pref => `
-                  <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:8px 12px;border-radius:20px;border:1px solid ${currentPrefs.includes(pref) ? 'var(--rose-400)' : 'var(--border)'};background:${currentPrefs.includes(pref) ? 'rgba(244,63,94,0.12)' : 'transparent'};font-size:12px;transition:all 0.2s" id="pref-label-${pref.replace(/\s/g,'_')}" onclick="togglePref(this,'${pref}')">
+                  <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:8px 12px;border-radius:20px;border:1px solid ${currentPrefs.includes(pref) ? 'var(--rose-400)' : 'var(--border)'};background:${currentPrefs.includes(pref) ? 'rgba(244,63,94,0.12)' : 'transparent'};font-size:12px;transition:all 0.2s" id="pref-label-${pref.replace(/\s/g, '_')}" onclick="togglePref(this,'${pref}')">
                     <input type="checkbox" name="prefs" value="${pref}" ${currentPrefs.includes(pref) ? 'checked' : ''} style="display:none">
                     ${pref}
                   </label>
