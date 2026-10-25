@@ -270,6 +270,8 @@ async function renderAdminProducts() {
 }
 
 let currentProductsList = [];
+let currentEditingProduct = null;
+
 function openEditProductModalById(id) {
   const p = currentProductsList.find(x => Number(x.id) === Number(id));
   if (p) openEditProductModal(p);
@@ -284,7 +286,10 @@ async function fetchAndRenderProducts(filters) {
     const suppliers = await api('GET', '/api/admin/suppliers');
     currentProductsList = products;
 
-    const supplierOptions = suppliers.map(s => `<option value="${s.id}" ${filters.supplier_id == s.id ? 'selected' : ''}>${s.name}</option>`).join('');
+    const supplierOptions = suppliers.map(s => {
+      const isInactive = s.status === 'INACTIVE';
+      return `<option value="${s.id}" ${filters.supplier_id == s.id ? 'selected' : ''}>${escapeHtml(s.name)}${isInactive ? ' (Ngừng hợp tác ✕)' : ''}</option>`;
+    }).join('');
 
     const html = `
       <div class="filter-bar">
@@ -298,9 +303,9 @@ async function fetchAndRenderProducts(filters) {
           <option value="">Tất cả NCC</option>${supplierOptions}
         </select>
         <select id="prod-launch">
-          <option value="">Tất cả</option>
-          <option value="OFFICIAL" ${filters.launch_status === 'OFFICIAL' ? 'selected' : ''}>✓ Chính thức</option>
-          <option value="UPCOMING" ${filters.launch_status === 'UPCOMING' ? 'selected' : ''}>⏳ Sắp ra mắt</option>
+          <option value="">Tất cả trạng thái</option>
+          <option value="OFFICIAL" ${filters.launch_status === 'OFFICIAL' ? 'selected' : ''}>✓ Đang kinh doanh (Mở đánh giá)</option>
+          <option value="UPCOMING" ${filters.launch_status === 'UPCOMING' ? 'selected' : ''}>🚫 Ngừng kinh doanh (Đóng đánh giá)</option>
         </select>
         <input type="number" id="prod-minprice" placeholder="Giá từ (₫)" value="${filters.min_price || ''}" style="max-width:120px">
         <input type="number" id="prod-maxprice" placeholder="Đến (₫)" value="${filters.max_price || ''}" style="max-width:120px">
@@ -308,7 +313,7 @@ async function fetchAndRenderProducts(filters) {
           <option value="created_at" ${filters.sort_by === 'created_at' ? 'selected' : ''}>Mới nhất</option>
           <option value="price" ${filters.sort_by === 'price' ? 'selected' : ''}>Theo giá</option>
           <option value="name" ${filters.sort_by === 'name' ? 'selected' : ''}>Theo tên A-Z</option>
-          <option value="stock_quantity" ${filters.sort_by === 'stock_quantity' ? 'selected' : ''}>Theo tồn kho</option>
+          <option value="review_count" ${filters.sort_by === 'review_count' ? 'selected' : ''}>Theo đánh giá</option>
         </select>
         <select id="prod-sortdir">
           <option value="desc" ${filters.sort_dir === 'desc' ? 'selected' : ''}>▼ Giảm dần</option>
@@ -322,35 +327,37 @@ async function fetchAndRenderProducts(filters) {
         <table>
           <thead><tr>
             <th>ID</th><th>Sản phẩm</th><th>Danh mục</th><th>Nhà cung cấp</th>
-            <th>Giá</th><th>Tồn kho</th><th>Trạng thái</th><th>Ngày tạo</th><th>Hành động</th>
+            <th>Giá</th><th>Trạng thái kinh doanh</th><th>Ngày tạo</th><th>Hành động</th>
           </tr></thead>
           <tbody>
-            ${products.length === 0 ? `<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:40px">Không tìm thấy sản phẩm nào</td></tr>` : products.map(p => `
+            ${products.length === 0 ? `<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:40px">Không tìm thấy sản phẩm nào</td></tr>` : products.map(p => `
               <tr>
                 <td><span style="color:var(--text-muted)">#${p.id}</span></td>
                 <td>
                   <div style="display:flex;align-items:center;gap:10px">
                     <span style="font-size:22px">${getCategoryIcon(p.category)}</span>
                     <div>
-                      <div style="font-weight:600;max-width:200px">${p.name}</div>
-                      <div style="font-size:11px;color:var(--text-muted)">${p.description ? p.description.substring(0, 50) + '...' : ''}</div>
+                      <div style="font-weight:600;max-width:200px">${escapeHtml(p.name)}</div>
+                      <div style="font-size:11px;color:var(--text-muted)">${p.description ? escapeHtml(p.description.substring(0, 50)) + '...' : ''}</div>
                     </div>
                   </div>
                 </td>
-                <td><span class="tag">${p.category}</span></td>
-                <td style="color:var(--text-secondary);font-size:12px">${p.supplier_name || '—'}</td>
+                <td><span class="tag">${escapeHtml(p.category)}</span></td>
+                <td style="color:var(--text-secondary);font-size:12px">${p.supplier_name ? escapeHtml(p.supplier_name) : '—'}</td>
                 <td><strong style="color:var(--rose-300)">${formatCurrency(p.price)}</strong></td>
                 <td>
-                  <span style="color:${p.stock_quantity === 0 ? '#f87171' : p.stock_quantity < 50 ? '#fbbf24' : '#34d399'};font-weight:600">
-                    ${p.stock_quantity === 0 ? '⚠️ Hết' : p.stock_quantity}
-                  </span>
+                  <div>
+                    ${launchBadge(p.launch_status)}
+                    ${p.review_count > 0 
+                      ? `<div style="font-size:11px;color:#93c5fd;margin-top:3px;font-weight:500">💬 ${p.review_count} đánh giá</div>` 
+                      : `<div style="font-size:11px;color:var(--text-muted);margin-top:3px">Chưa có đánh giá</div>`}
+                  </div>
                 </td>
-                <td>${launchBadge(p.launch_status)}</td>
                 <td style="color:var(--text-muted);font-size:12px">${formatDate(p.created_at)}</td>
                 <td>
                   <div style="display:flex;gap:6px">
-                    <button class="btn btn-secondary btn-sm" onclick="openEditProductModalById(${p.id})">✏️</button>
-                    <button class="btn btn-trash btn-sm" onclick="deleteProduct(${p.id},'${p.name.replace(/'/g, "\\'")}')"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>
+                    <button class="btn btn-secondary btn-sm" onclick="openEditProductModalById(${p.id})" title="Chỉnh sửa sản phẩm">✏️</button>
+                    <button class="btn btn-trash btn-sm" onclick="deleteProduct(${p.id},'${p.name.replace(/'/g, "\\'")}',${Number(p.review_count) || 0})" title="${Number(p.review_count) > 0 ? 'Ngừng kinh doanh (bảo toàn đánh giá CRM)' : 'Xóa vĩnh viễn'}"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>
                   </div>
                 </td>
               </tr>
@@ -381,7 +388,12 @@ async function openCreateProductModal() {
   const suppliers = await api('GET', '/api/admin/suppliers').catch(() => []);
   const catOptions = ['Son môi', 'Kem dưỡng da', 'Serum', 'Kem chống nắng', 'Phấn phủ', 'Sữa rửa mặt', 'Toner', 'Mặt nạ', 'Mascara', 'Phấn má hồng']
     .map(c => `<option value="${c}">${c}</option>`).join('');
-  const supOptions = suppliers.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+  const supOptions = suppliers.map(s => {
+    const isInactive = s.status === 'INACTIVE';
+    return `<option value="${s.id}" ${isInactive ? 'disabled style="color:var(--text-muted);background:rgba(15,23,42,0.8)"' : ''}>
+      ${escapeHtml(s.name)}${isInactive ? ' (Ngừng hợp tác ✕)' : ''}
+    </option>`;
+  }).join('');
 
   showModal('➕ Thêm sản phẩm mới', `
     <div class="form-group"><label>Tên sản phẩm *</label><input id="mp-name" placeholder="Tên sản phẩm đầy đủ"></div>
@@ -389,14 +401,11 @@ async function openCreateProductModal() {
       <div class="form-group"><label>Danh mục *</label><select id="mp-cat"><option value="">-- Chọn --</option>${catOptions}</select></div>
       <div class="form-group"><label>Nhà cung cấp</label><select id="mp-supplier"><option value="">-- Chọn NCC --</option>${supOptions}</select></div>
     </div>
-    <div class="form-row">
-      <div class="form-group"><label>Giá bán (₫)</label><input id="mp-price" type="number" placeholder="0" min="0"></div>
-      <div class="form-group"><label>Tồn kho</label><input id="mp-stock" type="number" placeholder="0" min="0"></div>
-    </div>
-    <div class="form-group"><label>Trạng thái ra mắt</label>
+    <div class="form-group"><label>Giá bán (₫)</label><input id="mp-price" type="number" placeholder="0" min="0"></div>
+    <div class="form-group"><label>Trạng thái kinh doanh</label>
       <select id="mp-launch">
-        <option value="OFFICIAL">✓ Sản phẩm chính thức</option>
-        <option value="UPCOMING">⏳ Sắp ra mắt (đang khảo sát)</option>
+        <option value="OFFICIAL">✓ Đang kinh doanh (Mở đánh giá)</option>
+        <option value="UPCOMING">🚫 Ngừng kinh doanh (Đóng đánh giá)</option>
       </select>
     </div>
     <div class="form-group"><label>Mô tả sản phẩm</label><textarea id="mp-desc" placeholder="Mô tả chi tiết sản phẩm..."></textarea></div>
@@ -408,13 +417,19 @@ async function openCreateProductModal() {
 }
 
 async function createProduct() {
+  const nameVal = document.getElementById('mp-name').value.trim();
+  const catVal = document.getElementById('mp-cat').value;
+  if (!nameVal || !catVal) {
+    toast('Vui lòng nhập tên sản phẩm và chọn danh mục', 'warning');
+    return;
+  }
+
   try {
     await api('POST', '/api/admin/products', {
-      name: document.getElementById('mp-name').value.trim(),
-      category: document.getElementById('mp-cat').value,
+      name: nameVal,
+      category: catVal,
       supplier_id: document.getElementById('mp-supplier').value || null,
       price: Number(document.getElementById('mp-price').value) || 0,
-      stock_quantity: Number(document.getElementById('mp-stock').value) || 0,
       launch_status: document.getElementById('mp-launch').value,
       description: document.getElementById('mp-desc').value.trim(),
     });
@@ -425,28 +440,53 @@ async function createProduct() {
 }
 
 async function openEditProductModal(p) {
+  currentEditingProduct = p;
   const suppliers = await api('GET', '/api/admin/suppliers').catch(() => []);
-  const catOptions = ['Son môi', 'Kem dưỡng da', 'Serum', 'Kem chống nắng', 'Phấn phủ', 'Sữa rửa mặt', 'Toner', 'Mặt nạ']
+  const catOptions = ['Son môi', 'Kem dưỡng da', 'Serum', 'Kem chống nắng', 'Phấn phủ', 'Sữa rửa mặt', 'Toner', 'Mặt nạ', 'Mascara', 'Phấn má hồng']
     .map(c => `<option value="${c}" ${p.category === c ? 'selected' : ''}>${c}</option>`).join('');
-  const supOptions = suppliers.map(s => `<option value="${s.id}" ${p.supplier_id == s.id ? 'selected' : ''}>${s.name}</option>`).join('');
+  const supOptions = suppliers.map(s => {
+    const isInactive = s.status === 'INACTIVE';
+    const isCurrent = Number(p.supplier_id) === Number(s.id);
+    const disabledAttr = (isInactive && !isCurrent) ? 'disabled style="color:var(--text-muted);background:rgba(15,23,42,0.8)"' : '';
+    return `<option value="${s.id}" ${isCurrent ? 'selected' : ''} ${disabledAttr}>
+      ${escapeHtml(s.name)}${isInactive ? ' (Ngừng hợp tác ✕)' : ''}
+    </option>`;
+  }).join('');
+  const hasReviews = Number(p.review_count) > 0;
 
-  showModal(`✏️ Chỉnh sửa: ${p.name}`, `
-    <div class="form-group"><label>Tên sản phẩm *</label><input id="ep-name" value="${p.name}"></div>
+  showModal(`✏️ Chỉnh sửa: ${escapeHtml(p.name)}`, `
+    ${hasReviews ? `
+      <div style="background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.3);border-radius:var(--radius-md);padding:10px 14px;margin-bottom:16px;display:flex;align-items:flex-start;gap:10px;font-size:12px;color:#93c5fd;line-height:1.5">
+        <span style="font-size:18px;line-height:1">ℹ️</span>
+        <div>
+          <strong>Sản phẩm này đã có ${p.review_count} đánh giá từ khách hàng.</strong><br>
+          <span>Danh mục và Nhà cung cấp được cố định để bảo toàn lịch sử thống kê CRM.</span>
+        </div>
+      </div>
+    ` : ''}
+    <div class="form-group"><label>Tên sản phẩm *</label><input id="ep-name" value="${escapeHtml(p.name)}"></div>
     <div class="form-row">
-      <div class="form-group"><label>Danh mục</label><select id="ep-cat">${catOptions}</select></div>
-      <div class="form-group"><label>Nhà cung cấp</label><select id="ep-supplier"><option value="">-- Chọn --</option>${supOptions}</select></div>
+      <div class="form-group">
+        <label>Danh mục ${hasReviews ? '<span style="color:var(--text-muted);font-weight:400">(Cố định 🔒)</span>' : '*'}</label>
+        <select id="ep-cat" ${hasReviews ? 'disabled style="opacity:0.65;cursor:not-allowed;background:rgba(15,23,42,0.6)" title="Danh mục được cố định do đã có đánh giá CRM"' : ''}>
+          ${catOptions}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Nhà cung cấp ${hasReviews ? '<span style="color:var(--text-muted);font-weight:400">(Cố định 🔒)</span>' : ''}</label>
+        <select id="ep-supplier" ${hasReviews ? 'disabled style="opacity:0.65;cursor:not-allowed;background:rgba(15,23,42,0.6)" title="Nhà cung cấp được cố định do đã có đánh giá CRM"' : ''}>
+          <option value="">-- Chọn --</option>${supOptions}
+        </select>
+      </div>
     </div>
-    <div class="form-row">
-      <div class="form-group"><label>Giá bán (₫)</label><input id="ep-price" type="number" value="${p.price}"></div>
-      <div class="form-group"><label>Tồn kho</label><input id="ep-stock" type="number" value="${p.stock_quantity}"></div>
-    </div>
-    <div class="form-group"><label>Trạng thái ra mắt</label>
+    <div class="form-group"><label>Giá bán (₫)</label><input id="ep-price" type="number" value="${p.price}" min="0"></div>
+    <div class="form-group"><label>Trạng thái kinh doanh</label>
       <select id="ep-launch">
-        <option value="OFFICIAL" ${p.launch_status === 'OFFICIAL' ? 'selected' : ''}>✓ Chính thức</option>
-        <option value="UPCOMING" ${p.launch_status === 'UPCOMING' ? 'selected' : ''}>⏳ Sắp ra mắt</option>
+        <option value="OFFICIAL" ${p.launch_status === 'OFFICIAL' ? 'selected' : ''}>✓ Đang kinh doanh (Mở đánh giá)</option>
+        <option value="UPCOMING" ${p.launch_status === 'UPCOMING' ? 'selected' : ''}>🚫 Ngừng kinh doanh (Đóng đánh giá)</option>
       </select>
     </div>
-    <div class="form-group"><label>Mô tả</label><textarea id="ep-desc">${p.description || ''}</textarea></div>
+    <div class="form-group"><label>Mô tả</label><textarea id="ep-desc">${escapeHtml(p.description || '')}</textarea></div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal()">Hủy</button>
       <button class="btn btn-primary" onclick="updateProduct(${p.id})">💾 Lưu thay đổi</button>
@@ -455,13 +495,22 @@ async function openEditProductModal(p) {
 }
 
 async function updateProduct(id) {
+  const p = currentEditingProduct || {};
+  const hasReviews = Number(p.review_count) > 0;
+  const nameVal = document.getElementById('ep-name').value.trim();
+  if (!nameVal) {
+    toast('Tên sản phẩm không được để trống', 'warning');
+    return;
+  }
+  const catEl = document.getElementById('ep-cat');
+  const supEl = document.getElementById('ep-supplier');
+
   try {
     await api('PUT', `/api/admin/products/${id}`, {
-      name: document.getElementById('ep-name').value.trim(),
-      category: document.getElementById('ep-cat').value,
-      supplier_id: document.getElementById('ep-supplier').value || null,
-      price: Number(document.getElementById('ep-price').value),
-      stock_quantity: Number(document.getElementById('ep-stock').value),
+      name: nameVal,
+      category: hasReviews ? p.category : (catEl ? catEl.value : p.category),
+      supplier_id: hasReviews ? (p.supplier_id || null) : (supEl && supEl.value ? Number(supEl.value) : null),
+      price: Number(document.getElementById('ep-price').value) || 0,
       launch_status: document.getElementById('ep-launch').value,
       description: document.getElementById('ep-desc').value.trim(),
     });
@@ -471,18 +520,32 @@ async function updateProduct(id) {
   } catch (e) { toast(e.message, 'error'); }
 }
 
-async function deleteProduct(id, name) {
-  if (!confirm(`Xác nhận xóa sản phẩm "${name}"?`)) return;
+async function deleteProduct(id, name, reviewCount) {
+  const count = Number(reviewCount) || 0;
+  if (count > 0) {
+    const ok = confirm(
+      `Sản phẩm "${name}" đã có ${count} lượt đánh giá từ khách hàng.\n\n` +
+      `Để bảo toàn dữ liệu thống kê CRM, sản phẩm sẽ KHÔNG bị xóa vĩnh viễn khỏi Database mà tự động chuyển sang trạng thái "Ngừng kinh doanh (Đóng đánh giá)".\n\n` +
+      `Bạn có đồng ý tiếp tục?`
+    );
+    if (!ok) return;
+  } else {
+    if (!confirm(`Sản phẩm "${name}" chưa có đánh giá nào.\n\nBạn có chắc chắn muốn xóa vĩnh viễn sản phẩm này khỏi cơ sở dữ liệu?`)) return;
+  }
+
   try {
-    await api('DELETE', `/api/admin/products/${id}`);
-    toast('Đã xóa sản phẩm', 'success');
+    const res = await api('DELETE', `/api/admin/products/${id}`);
+    toast(res.message || 'Đã xử lý sản phẩm', 'success');
     fetchAndRenderProducts(productFilters);
   } catch (e) { toast(e.message, 'error'); }
 }
 
 // ========== ADMIN: SUPPLIERS ==========
+let currentSuppliersList = [];
+let currentEditingSupplier = null;
+
 async function renderAdminSuppliers() {
-  setPageHeader('🏪 Quản lý Nhà cung cấp', 'Quản lý danh sách nhà cung cấp mỹ phẩm',
+  setPageHeader('🏪 Quản lý Nhà cung cấp', 'Quản lý đối tác nhãn hàng & theo dõi chất lượng sản phẩm qua đánh giá khách hàng',
     `<button class="btn btn-primary" onclick="openCreateSupplierModal()">➕ Thêm nhà cung cấp</button>`);
   showLoading();
   try {
@@ -491,7 +554,6 @@ async function renderAdminSuppliers() {
   } catch (e) { toast(e.message, 'error'); }
 }
 
-let currentSuppliersList = [];
 function openEditSupplierModalById(id) {
   const s = currentSuppliersList.find(x => Number(x.id) === Number(id));
   if (s) openEditSupplierModal(s);
@@ -501,9 +563,9 @@ function renderSuppliersTable(suppliers) {
   currentSuppliersList = suppliers;
   const html = `
     <div class="filter-bar">
-      <input type="text" id="sup-search" placeholder="🔍 Tên, người liên hệ, email...">
+      <input type="text" id="sup-search" placeholder="🔍 Tên, người liên hệ, email, SĐT...">
       <select id="sup-status">
-        <option value="">Tất cả</option>
+        <option value="">Tất cả trạng thái</option>
         <option value="ACTIVE">✓ Đang hợp tác</option>
         <option value="INACTIVE">✕ Ngừng hợp tác</option>
       </select>
@@ -512,28 +574,67 @@ function renderSuppliersTable(suppliers) {
     </div>
     <div class="table-wrapper">
       <table>
-        <thead><tr><th>ID</th><th>Tên nhà cung cấp</th><th>Người liên hệ</th><th>Email</th><th>Điện thoại</th><th>Địa chỉ</th><th>Trạng thái</th><th>Hành động</th></tr></thead>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Tên nhà cung cấp</th>
+            <th>Người liên hệ</th>
+            <th>Email</th>
+            <th>Điện thoại</th>
+            <th>Sản phẩm</th>
+            <th>Điểm đánh giá TB</th>
+            <th>Trạng thái</th>
+            <th>Hành động</th>
+          </tr>
+        </thead>
         <tbody>
-          ${suppliers.length === 0 ? `<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text-muted)">Chưa có nhà cung cấp</td></tr>` : suppliers.map(s => `
-            <tr>
-              <td><span style="color:var(--text-muted)">#${s.id}</span></td>
-              <td><strong>${s.name}</strong></td>
-              <td>${s.contact_name || '—'}</td>
-              <td style="color:var(--text-secondary)">${s.email || '—'}</td>
-              <td>${s.phone || '—'}</td>
-              <td style="color:var(--text-muted);font-size:12px;max-width:180px">${s.address || '—'}</td>
-              <td>${statusBadge(s.status)}</td>
-              <td>
-                <div style="display:flex;gap:6px">
-                  <button class="btn btn-secondary btn-sm" onclick="openEditSupplierModalById(${s.id})">✏️</button>
-                  <button class="btn btn-trash btn-sm" onclick="deleteSupplier(${s.id},'${s.name.replace(/'/g, "\\'")}')"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>
+          ${suppliers.length === 0 ? `<tr><td colspan="9" style="text-align:center;padding:40px;color:var(--text-muted)">Không tìm thấy nhà cung cấp nào</td></tr>` : suppliers.map(s => {
+            const prodCount = Number(s.product_count) || 0;
+            const revCount = Number(s.review_count) || 0;
+            let ratingHtml = `<span style="color:var(--text-muted);font-size:12px">Chưa có đánh giá</span>`;
+            if (revCount > 0 && s.avg_rating !== null && s.avg_rating !== undefined) {
+              const avg = Number(s.avg_rating);
+              const isLow = avg < 3.0;
+              const badgeStyle = isLow 
+                ? 'background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3);padding:2px 8px;border-radius:12px;font-weight:600' 
+                : 'color:#fbbf24;font-weight:600';
+              ratingHtml = `
+                <div style="display:flex;align-items:center;gap:6px">
+                  <span style="${badgeStyle}">${isLow ? '⚠️ ' : '⭐ '}${avg.toFixed(1)}</span>
+                  <span style="font-size:11px;color:var(--text-muted)">(${revCount} đánh giá)</span>
                 </div>
-              </td>
-            </tr>
-          `).join('')}
+              `;
+            }
+
+            return `
+              <tr>
+                <td><span style="color:var(--text-muted)">#${s.id}</span></td>
+                <td>
+                  <strong style="color:var(--text-primary);font-size:14px">${escapeHtml(s.name)}</strong>
+                </td>
+                <td style="color:var(--text-secondary);font-size:13px">${s.contact_name ? escapeHtml(s.contact_name) : '—'}</td>
+                <td style="color:var(--text-secondary);font-size:12px">✉️ ${escapeHtml(s.email || '—')}</td>
+                <td style="font-size:12px;font-weight:500;color:var(--text-primary)">📞 ${escapeHtml(s.phone || '—')}</td>
+                <td>
+                  <span class="tag" style="font-size:12px;background:rgba(99,102,241,0.12);color:#818cf8;border:1px solid rgba(99,102,241,0.25)">
+                    📦 <strong>${prodCount}</strong> sản phẩm
+                  </span>
+                </td>
+                <td>${ratingHtml}</td>
+                <td>${statusBadge(s.status)}</td>
+                <td>
+                  <div style="display:flex;gap:6px">
+                    <button class="btn btn-secondary btn-sm" onclick="openEditSupplierModalById(${s.id})" title="Chỉnh sửa nhà cung cấp">✏️</button>
+                    <button class="btn btn-trash btn-sm" onclick="deleteSupplier(${s.id},'${s.name.replace(/'/g, "\\'")}',${prodCount})" title="${prodCount > 0 ? 'Ngừng hợp tác (đang có sản phẩm)' : 'Xóa vĩnh viễn'}"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>
+                  </div>
+                </td>
+              </tr>
+            `;
+          }).join('')}
         </tbody>
       </table>
     </div>
+    <p style="color:var(--text-muted);font-size:12px;margin-top:10px">Hiển thị ${suppliers.length} nhà cung cấp đối tác</p>
   `;
   setPageContent(html);
 }
@@ -552,31 +653,38 @@ async function filterSuppliers() {
 
 function openCreateSupplierModal() {
   showModal('➕ Thêm nhà cung cấp mới', `
-    <div class="form-group"><label>Tên nhà cung cấp *</label><input id="ms-name" placeholder="Tên công ty / thương hiệu"></div>
+    <div class="form-group"><label>Tên nhà cung cấp *</label><input id="ms-name" placeholder="Tên công ty / thương hiệu đối tác"></div>
     <div class="form-row">
-      <div class="form-group"><label>Người liên hệ</label><input id="ms-contact" placeholder="Họ và tên"></div>
+      <div class="form-group"><label>Người liên hệ</label><input id="ms-contact" placeholder="Họ và tên đại diện"></div>
       <div class="form-group"><label>Điện thoại</label><input id="ms-phone" placeholder="028xxxxxxx"></div>
     </div>
     <div class="form-group"><label>Email</label><input id="ms-email" type="email" placeholder="contact@supplier.com"></div>
-    <div class="form-group"><label>Địa chỉ</label><input id="ms-addr" placeholder="Địa chỉ công ty"></div>
     <div class="form-group"><label>Trạng thái</label>
-      <select id="ms-status"><option value="ACTIVE">✓ Đang hợp tác</option><option value="INACTIVE">✕ Ngừng hợp tác</option></select>
+      <select id="ms-status">
+        <option value="ACTIVE">✓ Đang hợp tác</option>
+        <option value="INACTIVE">✕ Ngừng hợp tác</option>
+      </select>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal()">Hủy</button>
-      <button class="btn btn-primary" onclick="createSupplier()">✅ Thêm</button>
+      <button class="btn btn-primary" onclick="createSupplier()">✅ Thêm nhà cung cấp</button>
     </div>
   `);
 }
 
 async function createSupplier() {
+  const nameVal = document.getElementById('ms-name').value.trim();
+  if (!nameVal) {
+    toast('Tên nhà cung cấp là bắt buộc', 'warning');
+    return;
+  }
+
   try {
     await api('POST', '/api/admin/suppliers', {
-      name: document.getElementById('ms-name').value.trim(),
+      name: nameVal,
       contact_name: document.getElementById('ms-contact').value.trim(),
       phone: document.getElementById('ms-phone').value.trim(),
       email: document.getElementById('ms-email').value.trim(),
-      address: document.getElementById('ms-addr').value.trim(),
       status: document.getElementById('ms-status').value,
     });
     toast('Thêm nhà cung cấp thành công!', 'success');
@@ -586,14 +694,29 @@ async function createSupplier() {
 }
 
 function openEditSupplierModal(s) {
-  showModal(`✏️ Chỉnh sửa: ${s.name}`, `
-    <div class="form-group"><label>Tên nhà cung cấp</label><input id="es-name" value="${s.name}"></div>
-    <div class="form-row">
-      <div class="form-group"><label>Người liên hệ</label><input id="es-contact" value="${s.contact_name || ''}"></div>
-      <div class="form-group"><label>Điện thoại</label><input id="es-phone" value="${s.phone || ''}"></div>
+  currentEditingSupplier = s;
+  const prodCount = Number(s.product_count) || 0;
+  const hasProducts = prodCount > 0;
+
+  showModal(`✏️ Chỉnh sửa: ${escapeHtml(s.name)}`, `
+    ${hasProducts ? `
+      <div style="background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.3);border-radius:var(--radius-md);padding:10px 14px;margin-bottom:16px;display:flex;align-items:flex-start;gap:10px;font-size:12px;color:#93c5fd;line-height:1.5">
+        <span style="font-size:18px;line-height:1">ℹ️</span>
+        <div>
+          <strong>Nhà cung cấp này đang có ${prodCount} sản phẩm liên kết.</strong><br>
+          <span>Tên nhà cung cấp được cố định để bảo toàn lịch sử thống kê CRM.</span>
+        </div>
+      </div>
+    ` : ''}
+    <div class="form-group">
+      <label>Tên nhà cung cấp * ${hasProducts ? '<span style="color:var(--text-muted);font-weight:400">(Cố định 🔒)</span>' : ''}</label>
+      <input id="es-name" value="${escapeHtml(s.name)}" ${hasProducts ? 'disabled style="opacity:0.65;cursor:not-allowed;background:rgba(15,23,42,0.6)" title="Tên nhà cung cấp được cố định do đã có sản phẩm liên kết"' : ''}>
     </div>
-    <div class="form-group"><label>Email</label><input id="es-email" value="${s.email || ''}"></div>
-    <div class="form-group"><label>Địa chỉ</label><input id="es-addr" value="${s.address || ''}"></div>
+    <div class="form-row">
+      <div class="form-group"><label>Người liên hệ</label><input id="es-contact" value="${escapeHtml(s.contact_name || '')}"></div>
+      <div class="form-group"><label>Điện thoại</label><input id="es-phone" value="${escapeHtml(s.phone || '')}"></div>
+    </div>
+    <div class="form-group"><label>Email</label><input id="es-email" type="email" value="${escapeHtml(s.email || '')}"></div>
     <div class="form-group"><label>Trạng thái</label>
       <select id="es-status">
         <option value="ACTIVE" ${s.status === 'ACTIVE' ? 'selected' : ''}>✓ Đang hợp tác</option>
@@ -602,32 +725,52 @@ function openEditSupplierModal(s) {
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal()">Hủy</button>
-      <button class="btn btn-primary" onclick="updateSupplier(${s.id})">💾 Lưu</button>
+      <button class="btn btn-primary" onclick="updateSupplier(${s.id})">💾 Lưu thay đổi</button>
     </div>
   `);
 }
 
 async function updateSupplier(id) {
+  const s = currentEditingSupplier || {};
+  const hasProducts = (Number(s.product_count) || 0) > 0;
+  const nameInput = document.getElementById('es-name');
+  const nameVal = hasProducts ? s.name : (nameInput ? nameInput.value.trim() : s.name);
+
+  if (!nameVal) {
+    toast('Tên nhà cung cấp là bắt buộc', 'warning');
+    return;
+  }
+
   try {
-    await api('PUT', `/api/admin/suppliers/${id}`, {
-      name: document.getElementById('es-name').value.trim(),
+    const res = await api('PUT', `/api/admin/suppliers/${id}`, {
+      name: nameVal,
       contact_name: document.getElementById('es-contact').value.trim(),
       phone: document.getElementById('es-phone').value.trim(),
       email: document.getElementById('es-email').value.trim(),
-      address: document.getElementById('es-addr').value.trim(),
       status: document.getElementById('es-status').value,
     });
-    toast('Cập nhật thành công!', 'success');
+    toast(res.message || 'Cập nhật thành công!', 'success');
     closeModal();
     renderAdminSuppliers();
   } catch (e) { toast(e.message, 'error'); }
 }
 
-async function deleteSupplier(id, name) {
-  if (!confirm(`Xác nhận xóa nhà cung cấp "${name}"?`)) return;
+async function deleteSupplier(id, name, productCount) {
+  const count = Number(productCount) || 0;
+  if (count > 0) {
+    const ok = confirm(
+      `Nhà cung cấp "${name}" đang có ${count} sản phẩm liên kết.\n\n` +
+      `Để bảo toàn lịch sử sản phẩm và đánh giá CRM, nhà cung cấp sẽ KHÔNG bị xóa vĩnh viễn khỏi Database mà tự động chuyển sang trạng thái "Ngừng hợp tác" và toàn bộ sản phẩm liên quan sẽ chuyển sang "Ngừng kinh doanh (Đóng đánh giá)".\n\n` +
+      `Bạn có đồng ý tiếp tục?`
+    );
+    if (!ok) return;
+  } else {
+    if (!confirm(`Xác nhận xóa vĩnh viễn nhà cung cấp "${name}" khỏi cơ sở dữ liệu?`)) return;
+  }
+
   try {
-    await api('DELETE', `/api/admin/suppliers/${id}`);
-    toast('Đã xóa nhà cung cấp', 'success');
+    const res = await api('DELETE', `/api/admin/suppliers/${id}`);
+    toast(res.message || 'Đã xử lý nhà cung cấp', 'success');
     renderAdminSuppliers();
   } catch (e) { toast(e.message, 'error'); }
 }

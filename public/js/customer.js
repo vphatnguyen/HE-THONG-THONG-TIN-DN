@@ -37,22 +37,22 @@ async function renderCustomerHome() {
           <div class="stat-label">Khảo sát chờ làm</div>
         </div>
         <div class="stat-card emerald">
-          <div class="stat-icon">⏳</div>
+          <div class="stat-icon">🚫</div>
           <div class="stat-value">${upcomingProducts.length}</div>
-          <div class="stat-label">Sản phẩm sắp ra mắt</div>
+          <div class="stat-label">Sản phẩm ngừng KD</div>
         </div>
         <div class="stat-card purple">
           <div class="stat-icon">🧴</div>
           <div class="stat-value">${products.filter(p => p.launch_status === 'OFFICIAL').length}</div>
-          <div class="stat-label">Sản phẩm hiện có</div>
+          <div class="stat-label">Sản phẩm đang kinh doanh</div>
         </div>
       </div>
 
-      <!-- Upcoming Products to Survey -->
+      <!-- Upcoming / Inactive Products Notice -->
       ${upcomingProducts.length > 0 ? `
         <div style="margin-bottom:28px">
           <h3 style="font-size:15px;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px">
-            ⏳ Sản phẩm sắp ra mắt <span style="font-size:12px;color:var(--text-muted);font-weight:400">– Tham gia khảo sát để định hình sản phẩm!</span>
+            🚫 Sản phẩm ngừng kinh doanh <span style="font-size:12px;color:var(--text-muted);font-weight:400">– Đã đóng nhận đánh giá mới</span>
           </h3>
           <div class="products-grid">
             ${upcomingProducts.map(p => `
@@ -176,8 +176,9 @@ async function startSurvey(id) {
     `;
 
     questions.forEach((q, i) => {
+      const cleanedQText = (q.question_text || '').trim().replace(/^((câu\s*\d+[\.:\s]*|\d+[\.\):\s]+)+)/i, '').trim();
       body += `<div style="background:var(--bg-card-solid);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:12px;line-height:1.5">${i + 1}. ${q.question_text}</div>`;
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px;line-height:1.5">${i + 1}. ${escapeHtml(cleanedQText)}</div>`;
 
       if (q.question_type === 'SINGLE_CHOICE' && Array.isArray(q.options)) {
         body += `<div style="display:flex;flex-direction:column;gap:8px">`;
@@ -411,6 +412,10 @@ async function openNewFeedbackModal() {
 async function openFeedbackModal(productId, productName) {
   const products = await api('GET', '/api/customer/products').catch(() => []);
   const target = products.find(p => Number(p.id) === Number(productId));
+  if (target && target.launch_status !== 'OFFICIAL') {
+    toast(`Sản phẩm "${productName || target.name}" đã ngừng kinh doanh và đóng nhận đánh giá mới.`, 'warning');
+    return;
+  }
   if (target && target.already_reviewed) {
     toast(`Bạn đã gửi đánh giá cho sản phẩm "${productName || target.name}" rồi!`, 'info');
     return;

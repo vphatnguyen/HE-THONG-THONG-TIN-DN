@@ -5,16 +5,118 @@
 let chartInstances = {};
 let analyticsFilterState = { from: '', to: '' };
 
+function normalizeBeautyPreferenceLabel(preference) {
+  const value = String(preference || '').trim();
+  return (value === 'Skincare cơ bản' || value === 'Chăm sóc da')
+    ? 'Chăm sóc da (Skincare)'
+    : value;
+}
+
 function destroyChart(id) {
   if (chartInstances[id]) { chartInstances[id].destroy(); delete chartInstances[id]; }
 }
-// ========== MANAGER: DASHBOARD ==========
+
+function buildPreferenceAnalysis(customerProfiles = []) {
+  const ageGroups = ['Dưới 18', '18-24', '25-34', '35-44', '45+'];
+  const standardSkins = ['Da dầu', 'Da hỗn hợp', 'Da nhạy cảm', 'Da thường', 'Da khô'];
+  const skinCounts = Object.fromEntries(standardSkins.map(skin => [skin, 0]));
+
+  customerProfiles.forEach(customer => {
+    if (customer.skin_type && skinCounts[customer.skin_type] !== undefined) skinCounts[customer.skin_type]++;
+  });
+  const skinTypes = [...standardSkins].sort((a, b) => skinCounts[b] - skinCounts[a]);
+  const classifyAge = age => {
+    if (age === null || age === undefined || isNaN(age)) return null;
+    const value = Number(age);
+    if (value < 18) return 'Dưới 18';
+    if (value <= 24) return '18-24';
+    if (value <= 34) return '25-34';
+    if (value <= 44) return '35-44';
+    return '45+';
+  };
+  const preferenceSet = new Set();
+  customerProfiles.forEach(customer => {
+    (customer.beauty_preferences || '').split(',').map(item => item.trim()).filter(Boolean)
+      .forEach(item => preferenceSet.add(normalizeBeautyPreferenceLabel(item)));
+  });
+  const standardOrder = ['Chăm sóc da (Skincare)', 'Trang điểm', 'Chống lão hóa', 'Trị mụn', 'Dưỡng ẩm', 'Organic'];
+  const preferences = [
+    ...standardOrder.filter(item => preferenceSet.has(item)),
+    ...[...preferenceSet].filter(item => !standardOrder.includes(item))
+  ];
+  if (!preferences.length) preferences.push(...standardOrder);
+
+  const byAge = {};
+  const bySkin = {};
+  preferences.forEach(preference => {
+    byAge[preference] = Object.fromEntries(ageGroups.map(group => [group, 0]));
+    bySkin[preference] = Object.fromEntries(skinTypes.map(skin => [skin, 0]));
+  });
+  customerProfiles.forEach(customer => {
+    const ageGroup = classifyAge(customer.age);
+    const skinType = customer.skin_type;
+    (customer.beauty_preferences || '').split(',').map(item => item.trim()).filter(Boolean).forEach(item => {
+      const preference = normalizeBeautyPreferenceLabel(item);
+      if (byAge[preference] && ageGroup && byAge[preference][ageGroup] !== undefined) byAge[preference][ageGroup]++;
+      if (bySkin[preference] && skinType && bySkin[preference][skinType] !== undefined) bySkin[preference][skinType]++;
+    });
+  });
+  return { ageGroups, skinTypes, preferences, byAge, bySkin };
+}
+
+function renderPreferenceAnalysisCharts(analysis) {
+  const { ageGroups, skinTypes, preferences, byAge, bySkin } = analysis;
+  const palette = ['#10b981', '#f43f5e', '#8b5cf6', '#fbbf24', '#3b82f6', '#ec4899', '#14b8a6', '#f97316'];
+  const createChart = (id, labels, matrix) => {
+    destroyChart(id);
+    const canvas = document.getElementById(`chart-${id}`);
+    if (!canvas) return;
+    chartInstances[id] = new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: preferences.map((preference, index) => ({
+          label: preference,
+          data: labels.map(label => matrix[preference][label] || 0),
+          backgroundColor: palette[index % palette.length],
+          borderRadius: 4,
+          maxBarThickness: 55
+        }))
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'top', labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12 } },
+          tooltip: {
+            mode: 'index',
+            intersect: false,
+            filter: tooltipItem => tooltipItem.raw > 0,
+            callbacks: {
+              footer: tooltipItems => 'Tổng cộng: ' + (tooltipItems || []).reduce((sum, item) => sum + (Number(item.raw) || 0), 0) + ' lượt sở thích'
+            }
+          }
+        },
+        scales: {
+          x: { stacked: true, grid: { color: 'rgba(203,213,225,0.05)' }, ticks: { color: '#94a3b8', font: { size: 11 } } },
+          y: { stacked: true, beginAtZero: true, grid: { color: 'rgba(203,213,225,0.05)' }, ticks: { color: '#94a3b8', font: { size: 11 }, precision: 0, stepSize: 1 } }
+        }
+      }
+    });
+  };
+  createChart('pref-age', ageGroups, byAge);
+  createChart('pref-skin', skinTypes, bySkin);
+}
+
+// ========== MANAGER: DASHBOARD ==========
 async function renderManagerDashboard() {
   setPageHeader('📊 Dashboard CRM', 'Tổng quan & phân tích thị hiếu khách hàng làm đẹp');
+  const query = analyticsQuery();
   showLoading();
   try {
-    const data = await api('GET', `/api/manager/analytics${analyticsQuery()}`);
-    const { ageGroups, skinTypes, genderGroups, beautyPrefs, newCustomersByMonth, stats } = data;
+    const data = await api('GET', `/api/manager/analytics${query}`);
+    const { ageGroups, skinTypes, genderGroups, beautyPrefs, newCustomersByMonth, customerProfiles, stats } = data;
+    const preferenceAnalysis = buildPreferenceAnalysis(customerProfiles);
 
     const html = `
       ${analyticsFilterHtml('renderManagerDashboard')}
@@ -34,7 +136,7 @@ async function renderManagerDashboard() {
         </div>
         <div class="stat-card gold">
           <div class="stat-icon">⭐</div>
-          <div class="stat-value">${stats.avgRating || '—'}</div>
+          <div class="stat-value">${(stats.avgRating !== null && stats.avgRating !== undefined && !isNaN(Number(stats.avgRating)) && Number(stats.avgRating) > 0) ? Number(stats.avgRating).toFixed(1) : (stats.avgRating || '—')}</div>
           <div class="stat-label">Điểm hài lòng TB</div>
         </div>
         <div class="stat-card">
@@ -84,12 +186,24 @@ async function renderManagerDashboard() {
           <div class="chart-container"><canvas id="chart-ratings"></canvas></div>
         </div>
       </div>
+
+      <div class="charts-grid-2col" style="margin-top:20px">
+        <div class="chart-card">
+          <div class="chart-title">🎯 Sở thích theo độ tuổi</div>
+          <div class="chart-container" style="height:260px"><canvas id="chart-pref-age"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">🧴 Sở thích theo loại da</div>
+          <div class="chart-container" style="height:260px"><canvas id="chart-pref-skin"></canvas></div>
+        </div>
+      </div>
     `;
     setPageContent(html);
 
     // Render charts
     setTimeout(() => {
       const gemPalette = ['#10b981', '#34d399', '#60a5fa', '#a855f7', '#f43f5e', '#fbbf24', '#fb923c', '#e879f9'];
+      const agePalette = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444'];
       const roseGrad = ['#2d8c5e', '#3aae7b', '#6ec99e', '#a8dfc0', '#d5f0e0'];
 
       destroyChart('age');
@@ -104,7 +218,7 @@ async function renderManagerDashboard() {
         type: 'doughnut',
         data: {
           labels: ageGroups.map(g => g.age_group),
-          datasets: [{ data: ageGroups.map(g => g.count), backgroundColor: gemPalette, borderColor: 'transparent', borderWidth: 0 }]
+          datasets: [{ data: ageGroups.map(g => g.count), backgroundColor: agePalette, borderColor: 'transparent', borderWidth: 0 }]
         },
         options: {
           responsive: true,
@@ -295,6 +409,7 @@ async function renderManagerDashboard() {
           }
         }
       });
+      renderPreferenceAnalysisCharts(preferenceAnalysis);
     }, 50);
   } catch (e) { toast(e.message, 'error'); }
 }
@@ -315,6 +430,7 @@ function analyticsFilterHtml(targetRenderFunc = 'renderManagerDashboard') {
       <label style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:6px">Từ ngày <input type="date" id="analytics-from" value="${analyticsFilterState.from}"></label>
       <label style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:6px">Đến ngày <input type="date" id="analytics-to" value="${analyticsFilterState.to}"></label>
       <button class="btn btn-primary" onclick="${targetRenderFunc}()">🔍 Áp dụng</button>
+      <button class="btn btn-secondary" onclick="resetAnalyticsFilter('${targetRenderFunc}')" title="Xóa bộ lọc ngày về mặc định">↺ Đặt lại</button>
 
       <div class="dropdown" style="margin-left:auto">
         <button class="btn btn-secondary dropdown-toggle" onclick="toggleAnalyticsDropdown(event)" style="display:flex;align-items:center;gap:6px">
@@ -335,6 +451,19 @@ function analyticsFilterHtml(targetRenderFunc = 'renderManagerDashboard') {
       </div>
     </div>
   `;
+}
+
+function resetAnalyticsFilter(targetRenderFunc = 'renderManagerDashboard') {
+  analyticsFilterState = { from: '', to: '' };
+  const fromEl = document.getElementById('analytics-from');
+  const toEl = document.getElementById('analytics-to');
+  if (fromEl) fromEl.value = '';
+  if (toEl) toEl.value = '';
+  if (targetRenderFunc === 'renderManagerAnalytics' && typeof renderManagerAnalytics === 'function') {
+    renderManagerAnalytics();
+  } else if (typeof renderManagerDashboard === 'function') {
+    renderManagerDashboard();
+  }
 }
 
 function toggleAnalyticsDropdown(e) {
@@ -384,7 +513,6 @@ function completeMonthlySeries(entries) {
   const [lastYear, lastMonth] = keys[keys.length - 1].split('-').map(Number);
   let cursor = firstYear * 12 + firstMonth - 1;
   const end = lastYear * 12 + lastMonth - 1;
-  if (keys.length === 1) cursor--;
 
   const series = [];
   while (cursor <= end) {
@@ -429,81 +557,71 @@ async function downloadAnalytics(type) {
 let currentFeedbackProducts = [];
 let analyticsProductTab = 'ALL';
 let analyticsProductSearch = '';
+let analyticsProductSort = 'COUNT_DESC';
+let currentSurveyOverview = [];
+let analyticsSurveySearch = '';
+let analyticsSurveyStatus = 'ALL';
+
+function formatSurveyDuration(startDate, endDate) {
+  function toDateStr(d) {
+    if (!d) return null;
+    const dt = new Date(d);
+    if (isNaN(dt.getTime())) return null;
+    const day = String(dt.getDate()).padStart(2, '0');
+    const month = String(dt.getMonth() + 1).padStart(2, '0');
+    const year = dt.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+
+  const sStr = toDateStr(startDate);
+  const eStr = toDateStr(endDate);
+
+  let isExpired = false;
+  if (endDate) {
+    const endDt = new Date(endDate);
+    endDt.setHours(23, 59, 59, 999);
+    if (new Date() > endDt) {
+      isExpired = true;
+    }
+  }
+
+  let text = '';
+  if (!sStr && !eStr) {
+    text = '<span style="color:var(--text-muted)">Không giới hạn</span>';
+  } else if (sStr && eStr) {
+    text = `${sStr} - ${eStr}`;
+  } else if (sStr) {
+    text = `Từ ${sStr}`;
+  } else {
+    text = `Đến ${eStr}`;
+  }
+
+  if (isExpired) {
+    text += ` <span class="badge" style="background:rgba(239,68,68,0.15);color:#ef4444;font-size:10px;padding:2px 6px;margin-left:4px">Hết hạn</span>`;
+  }
+  return text;
+}
 
 async function renderManagerAnalytics() {
   setPageHeader('📈 Phân tích CRM', 'Phân tích sâu khách hàng, sở thích làm đẹp và hiệu quả chiến dịch');
+  const query = analyticsQuery();
   showLoading();
   try {
-    const data = await api('GET', `/api/manager/analytics${analyticsQuery()}`);
-    const { customerProfiles, feedbackByProduct, surveyOverview } = data;
+    const data = await api('GET', `/api/manager/analytics${query}`);
+    const { feedbackByProduct, surveyOverview } = data;
     currentFeedbackProducts = feedbackByProduct || [];
+    currentSurveyOverview = surveyOverview || [];
 
-    const standardAges = ['Dưới 18', '18-24', '25-34', '35-44', '45+'];
-    const standardSkins = ['Da dầu', 'Da hỗn hợp', 'Da nhạy cảm', 'Da thường', 'Da khô'];
-
-    const classifyAge = (age) => {
-      if (age === null || age === undefined || isNaN(age)) return null;
-      const a = Number(age);
-      if (a < 18) return 'Dưới 18';
-      if (a <= 24) return '18-24';
-      if (a <= 34) return '25-34';
-      if (a <= 44) return '35-44';
-      return '45+';
-    };
-
-    const prefSet = new Set();
-    customerProfiles.forEach(c => {
-      (c.beauty_preferences || '').split(',').map(p => p.trim()).filter(Boolean).forEach(p => {
-        const prefName = (p === 'Skincare cơ bản' || p === 'Chăm sóc da') ? 'Chăm sóc da (Skincare)' : p;
-        prefSet.add(prefName);
-      });
-    });
-    const standardPrefOrder = ['Chăm sóc da (Skincare)', 'Trang điểm', 'Chống lão hóa', 'Trị mụn', 'Dưỡng ẩm', 'Organic'];
-    const allPrefs = [
-      ...standardPrefOrder.filter(p => prefSet.has(p)),
-      ...[...prefSet].filter(p => !standardPrefOrder.includes(p))
-    ];
-    if (allPrefs.length === 0) allPrefs.push(...standardPrefOrder);
-
-    const ageMatrix = {};
-    const skinMatrix = {};
-    allPrefs.forEach(p => {
-      ageMatrix[p] = {};
-      skinMatrix[p] = {};
-      standardAges.forEach(a => { ageMatrix[p][a] = 0; });
-      standardSkins.forEach(s => { skinMatrix[p][s] = 0; });
-    });
-
-    customerProfiles.forEach(c => {
-      const ag = classifyAge(c.age);
-      const st = c.skin_type;
-      (c.beauty_preferences || '').split(',').map(p => p.trim()).filter(Boolean).forEach(p => {
-        const prefName = (p === 'Skincare cơ bản' || p === 'Chăm sóc da') ? 'Chăm sóc da (Skincare)' : p;
-        if (ageMatrix[prefName] && ag && ageMatrix[prefName][ag] !== undefined) {
-          ageMatrix[prefName][ag]++;
-        }
-        if (skinMatrix[prefName] && st && skinMatrix[prefName][st] !== undefined) {
-          skinMatrix[prefName][st]++;
-        }
-      });
-    });
+    // Counts cho 4 tab phân tích sản phẩm
+    const countAll = feedbackByProduct.length;
+    const countHigh = feedbackByProduct.filter(p => (Number(p.average) || 0) >= 4.0).length;
+    const countLow = feedbackByProduct.filter(p => (Number(p.average) || 0) < 3.5 && p.count > 0).length;
+    const countUnreplied = feedbackByProduct.filter(p => (p.pending_count || 0) > 0).length;
 
     const html = `
       ${analyticsFilterHtml('renderManagerAnalytics')}
 
-      <!-- 1. HAI BIỂU ĐỒ SỞ THÍCH: STACKED BAR CHARTS -->
-      <div class="charts-grid-2col">
-        <div class="chart-card">
-          <div class="chart-title">🎯 Sở thích theo độ tuổi (Stacked Bar)</div>
-          <div class="chart-container" style="height:260px"><canvas id="chart-pref-age"></canvas></div>
-        </div>
-        <div class="chart-card">
-          <div class="chart-title">🧴 Sở thích theo loại da (Stacked Bar)</div>
-          <div class="chart-container" style="height:260px"><canvas id="chart-pref-skin"></canvas></div>
-        </div>
-      </div>
-
-      <!-- 2. KHU VỰC XẾP HẠNG & PHÂN TÍCH SẢN PHẨM THEO PHẢN HỒI -->
+      <!-- KHU VỰC XẾP HẠNG & PHÂN TÍCH SẢN PHẨM THEO PHẢN HỒI -->
       <div class="card" style="margin-top:20px">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:14px">
           <div class="card-title" style="margin-bottom:0">⭐ Xếp hạng & Phân tích sản phẩm theo phản hồi</div>
@@ -511,23 +629,28 @@ async function renderManagerAnalytics() {
             <input type="text" id="analytics-product-search" placeholder="🔍 Tìm tên sản phẩm..."
                    value="${escapeHtml(analyticsProductSearch)}"
                    oninput="handleAnalyticsProductSearch(this.value)"
-                   style="max-width:220px;padding:6px 12px;font-size:12px">
+                   style="max-width:200px;padding:6px 12px;font-size:12px">
+            <select id="analytics-product-sort" onchange="handleAnalyticsProductSort(this.value)" style="padding:6px 10px;font-size:12px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-main)">
+              <option value="COUNT_DESC" ${analyticsProductSort === 'COUNT_DESC' ? 'selected' : ''}>Nhiều phản hồi nhất</option>
+              <option value="RATING_DESC" ${analyticsProductSort === 'RATING_DESC' ? 'selected' : ''}>Điểm cao -> thấp</option>
+              <option value="RATING_ASC" ${analyticsProductSort === 'RATING_ASC' ? 'selected' : ''}>Điểm thấp -> cao</option>
+            </select>
           </div>
         </div>
 
         <!-- Filter tabs -->
         <div class="filter-tabs">
-          <button class="filter-tab-btn ${analyticsProductTab === 'ALL' ? 'active' : ''}" onclick="setAnalyticsProductTab('ALL')">
-            Tất cả sản phẩm (${feedbackByProduct.length})
+          <button class="filter-tab-btn ${analyticsProductTab === 'ALL' ? 'active' : ''}" onclick="setAnalyticsProductTab('ALL', event)">
+            Tất cả sản phẩm (${countAll})
           </button>
-          <button class="filter-tab-btn ${analyticsProductTab === 'HIGH' ? 'active' : ''}" onclick="setAnalyticsProductTab('HIGH')">
-            ⭐ Đánh giá cao (≥ 4.0★)
+          <button class="filter-tab-btn ${analyticsProductTab === 'HIGH' ? 'active' : ''}" onclick="setAnalyticsProductTab('HIGH', event)">
+            ⭐ Đánh giá cao (≥ 4.0★) (${countHigh})
           </button>
-          <button class="filter-tab-btn ${analyticsProductTab === 'LOW' ? 'active' : ''}" onclick="setAnalyticsProductTab('LOW')">
-            ⚠️ Cần chú ý (< 3.5★)
+          <button class="filter-tab-btn ${analyticsProductTab === 'LOW' ? 'active' : ''}" onclick="setAnalyticsProductTab('LOW', event)">
+            ⚠️ Cần chú ý (< 3.5★) (${countLow})
           </button>
-          <button class="filter-tab-btn ${analyticsProductTab === 'UNREPLIED' ? 'active' : ''}" onclick="setAnalyticsProductTab('UNREPLIED')">
-            🕐 Chưa trả lời CSKH
+          <button class="filter-tab-btn ${analyticsProductTab === 'UNREPLIED' ? 'active' : ''}" onclick="setAnalyticsProductTab('UNREPLIED', event)">
+            🕐 Chưa trả lời CSKH (${countUnreplied})
           </button>
         </div>
 
@@ -550,50 +673,40 @@ async function renderManagerAnalytics() {
         </div>
       </div>
 
-      <!-- 3. HIỆU QUẢ CHIẾN DỊCH KHẢO SÁT -->
+      <!-- HIỆU QUẢ CHIẾN DỊCH KHẢO SÁT -->
       <div class="card" style="margin-top:20px">
-        <div class="card-title">📋 Hiệu quả chiến dịch khảo sát</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:14px">
+          <div class="card-title" style="margin-bottom:0">📋 Hiệu quả chiến dịch khảo sát</div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <input type="text" id="analytics-survey-search" placeholder="🔍 Tìm tên khảo sát..."
+                   value="${escapeHtml(analyticsSurveySearch)}"
+                   oninput="handleAnalyticsSurveySearch(this.value)"
+                   style="max-width:200px;padding:6px 12px;font-size:12px">
+            <select id="analytics-survey-status" onchange="handleAnalyticsSurveyStatus(this.value)" style="padding:6px 10px;font-size:12px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-main)">
+              <option value="ALL" ${analyticsSurveyStatus === 'ALL' ? 'selected' : ''}>Tất cả trạng thái</option>
+              <option value="ACTIVE" ${analyticsSurveyStatus === 'ACTIVE' ? 'selected' : ''}>Đang mở</option>
+              <option value="CLOSED" ${analyticsSurveyStatus === 'CLOSED' ? 'selected' : ''}>Đã đóng</option>
+            </select>
+          </div>
+        </div>
+
         <div class="table-wrapper">
           <table>
             <thead>
               <tr>
                 <th>KHẢO SÁT</th>
-                <th>KÊNH GỬI</th>
+                <th>SẢN PHẨM LIÊN QUAN</th>
+                <th>THỜI GIAN</th>
+                <th style="text-align:center">QUY MÔ</th>
                 <th>TRẠNG THÁI</th>
                 <th style="text-align:center">NGƯỜI NHẬN</th>
                 <th style="text-align:center">PHẢN HỒI</th>
                 <th style="min-width:140px">TỶ LỆ HOÀN THÀNH</th>
-                <th>MỨC ĐỘ HÀI LÒNG (CSAT)</th>
                 <th style="text-align:center">HÀNH ĐỘNG</th>
               </tr>
             </thead>
-            <tbody>
-              ${surveyOverview.length === 0 ? `<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--text-muted)">Chưa có dữ liệu chiến dịch khảo sát</td></tr>` : surveyOverview.map(s => {
-                const pct = s.recipients ? Math.round((s.responses / s.recipients) * 100) : 0;
-                return `
-                  <tr>
-                    <td><strong>${escapeHtml(s.title)}</strong></td>
-                    <td><span class="tag" style="font-size:11px">📱 In-App Web</span></td>
-                    <td>${surveyStatusBadge(s.status)}</td>
-                    <td style="text-align:center">${s.recipients || 0}</td>
-                    <td style="text-align:center">${s.responses || 0}</td>
-                    <td>
-                      <div style="display:flex;align-items:center;gap:8px">
-                        <div style="flex:1;min-width:60px;height:8px;background:rgba(203,213,225,0.2);border-radius:4px;overflow:hidden">
-                          <div style="width:${Math.min(pct, 100)}%;height:100%;background:var(--green-600);border-radius:4px"></div>
-                        </div>
-                        <span style="font-weight:600;font-size:12px">${pct}%</span>
-                      </div>
-                    </td>
-                    <td>
-                      ${s.csat_avg !== null && s.csat_avg !== undefined ? `<span style="color:#f59e0b;font-weight:700">⭐ ${Number(s.csat_avg).toFixed(1)}</span> <span style="font-size:11px;color:var(--text-muted)">/ 5</span>` : '<span style="color:var(--text-muted)">—</span>'}
-                    </td>
-                    <td style="text-align:center">
-                      <button class="btn btn-secondary btn-sm" onclick="viewSurveyResults(${s.id},'${s.title.replace(/'/g, "\\'")}')">📊 Chi tiết</button>
-                    </td>
-                  </tr>
-                `;
-              }).join('')}
+            <tbody id="analytics-surveys-tbody">
+              <!-- Rendered via filterAndRenderSurveyOverview -->
             </tbody>
           </table>
         </div>
@@ -602,105 +715,12 @@ async function renderManagerAnalytics() {
 
     setPageContent(html);
     filterAndRenderAnalyticsProducts();
-
-    // Render stacked charts
-    setTimeout(() => {
-      destroyChart('pref-age');
-      destroyChart('pref-skin');
-
-      const palette = ['#10b981', '#f43f5e', '#8b5cf6', '#fbbf24', '#3b82f6', '#ec4899', '#14b8a6', '#f97316'];
-
-      // Chart 1: Sở thích theo độ tuổi (Stacked Bar)
-      const ageDatasets = allPrefs.map((pref, i) => ({
-        label: pref,
-        data: standardAges.map(a => ageMatrix[pref][a] || 0),
-        backgroundColor: palette[i % palette.length],
-        borderRadius: 4
-      }));
-
-      chartInstances['pref-age'] = new Chart(document.getElementById('chart-pref-age'), {
-        type: 'bar',
-        data: {
-          labels: standardAges,
-          datasets: ageDatasets
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: {
-              position: 'top',
-              labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12 }
-            },
-            tooltip: {
-              mode: 'index',
-              intersect: false
-            }
-          },
-          scales: {
-            x: {
-              stacked: true,
-              grid: { color: 'rgba(203,213,225,0.05)' },
-              ticks: { color: '#94a3b8', font: { size: 11 } }
-            },
-            y: {
-              stacked: true,
-              beginAtZero: true,
-              grid: { color: 'rgba(203,213,225,0.05)' },
-              ticks: { color: '#94a3b8', font: { size: 11 }, precision: 0, stepSize: 1 }
-            }
-          }
-        }
-      });
-
-      // Chart 2: Sở thích theo loại da (Stacked Bar)
-      const skinDatasets = allPrefs.map((pref, i) => ({
-        label: pref,
-        data: standardSkins.map(s => skinMatrix[pref][s] || 0),
-        backgroundColor: palette[i % palette.length],
-        borderRadius: 4
-      }));
-
-      chartInstances['pref-skin'] = new Chart(document.getElementById('chart-pref-skin'), {
-        type: 'bar',
-        data: {
-          labels: standardSkins,
-          datasets: skinDatasets
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: {
-              position: 'top',
-              labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12 }
-            },
-            tooltip: {
-              mode: 'index',
-              intersect: false
-            }
-          },
-          scales: {
-            x: {
-              stacked: true,
-              grid: { color: 'rgba(203,213,225,0.05)' },
-              ticks: { color: '#94a3b8', font: { size: 11 } }
-            },
-            y: {
-              stacked: true,
-              beginAtZero: true,
-              grid: { color: 'rgba(203,213,225,0.05)' },
-              ticks: { color: '#94a3b8', font: { size: 11 }, precision: 0, stepSize: 1 }
-            }
-          }
-        }
-      });
-    }, 50);
+    filterAndRenderSurveyOverview();
 
   } catch (e) { toast(e.message, 'error'); }
 }
 
-function setAnalyticsProductTab(tab) {
+function setAnalyticsProductTab(tab, event) {
   analyticsProductTab = tab;
   document.querySelectorAll('.filter-tabs .filter-tab-btn').forEach(btn => btn.classList.remove('active'));
   const btn = event?.currentTarget;
@@ -711,6 +731,88 @@ function setAnalyticsProductTab(tab) {
 function handleAnalyticsProductSearch(val) {
   analyticsProductSearch = val;
   filterAndRenderAnalyticsProducts();
+}
+
+function handleAnalyticsProductSort(val) {
+  analyticsProductSort = val;
+  filterAndRenderAnalyticsProducts();
+}
+
+function handleAnalyticsSurveySearch(val) {
+  analyticsSurveySearch = val;
+  filterAndRenderSurveyOverview();
+}
+
+function handleAnalyticsSurveyStatus(val) {
+  analyticsSurveyStatus = val;
+  filterAndRenderSurveyOverview();
+}
+
+function filterAndRenderSurveyOverview() {
+  let list = currentSurveyOverview || [];
+  if (analyticsSurveySearch) {
+    const q = analyticsSurveySearch.toLowerCase().trim();
+    list = list.filter(s => (s.title || '').toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q));
+  }
+  if (analyticsSurveyStatus === 'ACTIVE') {
+    list = list.filter(s => s.status === 'ACTIVE');
+  } else if (analyticsSurveyStatus === 'CLOSED') {
+    list = list.filter(s => s.status === 'CLOSED');
+  }
+
+  const tbody = document.getElementById('analytics-surveys-tbody');
+  if (!tbody) return;
+
+  if (list.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:30px;color:var(--text-muted)">Không có chiến dịch khảo sát nào phù hợp điều kiện lọc</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = list.map(s => {
+    const pct = s.recipients ? Math.round((s.responses / s.recipients) * 100) : 0;
+    const remaining = Math.max(0, (s.recipients || 0) - (s.responses || 0));
+
+    let prodBadgesHtml = '<span style="color:var(--text-muted);font-size:11px">Toàn bộ</span>';
+    if (s.product_names) {
+      const pNames = s.product_names.split(',').map(n => n.trim()).filter(Boolean);
+      prodBadgesHtml = `<div style="display:flex;flex-wrap:wrap;gap:4px;max-width:200px">` +
+        pNames.map(name => `<span class="badge" style="background:rgba(59,130,246,0.12);color:#3b82f6;font-size:11px;padding:2px 7px;font-weight:500;border:1px solid rgba(59,130,246,0.25)">🏷️ ${escapeHtml(name)}</span>`).join('') +
+        `</div>`;
+    }
+
+    return `
+      <tr>
+        <td>
+          <div style="font-weight:700;color:var(--text-primary);font-size:13px">${escapeHtml(s.title)}</div>
+          ${s.description ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;max-width:240px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${escapeHtml(s.description)}</div>` : ''}
+        </td>
+        <td>${prodBadgesHtml}</td>
+        <td>
+          <div style="font-size:12px;white-space:nowrap">${formatSurveyDuration(s.start_date, s.end_date)}</div>
+        </td>
+        <td style="text-align:center">
+          <span class="badge" style="background:rgba(139,92,246,0.12);color:#8b5cf6;font-size:11px;padding:3px 8px;font-weight:600">📝 ${s.question_count || 0} câu hỏi</span>
+        </td>
+        <td>${surveyStatusBadge(s.status)}</td>
+        <td style="text-align:center;font-weight:600">${s.recipients || 0}</td>
+        <td style="text-align:center">
+          <div style="font-weight:700;font-size:13px">${s.responses || 0} đã làm</div>
+          <div style="font-size:11px;color:var(--text-muted)">${remaining} chờ</div>
+        </td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="flex:1;min-width:65px;height:8px;background:rgba(203,213,225,0.2);border-radius:4px;overflow:hidden">
+              <div style="width:${Math.min(pct, 100)}%;height:100%;background:var(--green-600);border-radius:4px"></div>
+            </div>
+            <span style="font-weight:600;font-size:12px">${pct}%</span>
+          </div>
+        </td>
+        <td style="text-align:center">
+          <button class="btn btn-secondary btn-sm" onclick="viewSurveyResults(${s.id},'${escapeHtml(s.title).replace(/'/g, "\\'")}')">📊 Chi tiết</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
 }
 
 function filterAndRenderAnalyticsProducts() {
@@ -725,6 +827,15 @@ function filterAndRenderAnalyticsProducts() {
     list = list.filter(p => (Number(p.average) || 0) < 3.5 && p.count > 0);
   } else if (analyticsProductTab === 'UNREPLIED') {
     list = list.filter(p => (p.pending_count || 0) > 0);
+  }
+
+  // Sắp xếp
+  if (analyticsProductSort === 'COUNT_DESC') {
+    list.sort((a, b) => (b.count || 0) - (a.count || 0) || (Number(b.average) || 0) - (Number(a.average) || 0));
+  } else if (analyticsProductSort === 'RATING_DESC') {
+    list.sort((a, b) => (Number(b.average) || 0) - (Number(a.average) || 0) || (b.count || 0) - (a.count || 0));
+  } else if (analyticsProductSort === 'RATING_ASC') {
+    list.sort((a, b) => (Number(a.average) || 0) - (Number(b.average) || 0) || (a.count || 0) - (b.count || 0));
   }
 
   const tbody = document.getElementById('analytics-products-tbody');
@@ -803,12 +914,12 @@ async function openProductReviewersModal(productId, productName) {
       </div>
       <div style="display:flex;flex-direction:column;gap:12px;max-height:65vh;overflow-y:auto;padding-right:4px">
         ${feedbacks.map(f => {
-          const ageDisplay = f.age ? `${f.age} tuổi` : 'Chưa rõ tuổi';
-          const skinDisplay = f.skin_type || 'Chưa rõ loại da';
-          const contact = [f.email, f.phone].filter(Boolean).join(' · ');
-          const isReplied = f.status === 'REPLIED';
+      const ageDisplay = f.age ? `${f.age} tuổi` : 'Chưa rõ tuổi';
+      const skinDisplay = f.skin_type || 'Chưa rõ loại da';
+      const contact = [f.email, f.phone].filter(Boolean).join(' · ');
+      const isReplied = f.status === 'REPLIED';
 
-          return `
+      return `
             <div style="border:1px solid var(--border);border-radius:var(--radius);padding:14px;background:var(--bg-card)">
               <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:8px">
                 <div>
@@ -832,9 +943,9 @@ async function openProductReviewersModal(productId, productName) {
               <div style="display:flex;justify-content:space-between;align-items:center;padding-top:6px;border-top:1px dashed var(--border);flex-wrap:wrap;gap:8px">
                 <div>
                   ${isReplied
-                    ? `<span class="badge badge-replied">✅ Đã phản hồi CSKH</span>`
-                    : `<span class="badge badge-pending" style="background:rgba(239,68,68,0.15);color:#ef4444">⚠️ Chờ xử lý</span>`
-                  }
+          ? `<span class="badge badge-replied">✅ Đã phản hồi CSKH</span>`
+          : `<span class="badge badge-pending" style="background:rgba(239,68,68,0.15);color:#ef4444">⚠️ Chờ xử lý</span>`
+        }
                 </div>
                 <div>
                   ${isReplied ? `
@@ -850,7 +961,7 @@ async function openProductReviewersModal(productId, productName) {
               </div>
             </div>
           `;
-        }).join('')}
+    }).join('')}
       </div>
     `;
     document.querySelector('.modal-body').innerHTML = html;
@@ -896,38 +1007,62 @@ async function fetchAndRenderCustomers(filters) {
         <table>
           <thead><tr>
             <th>Khách hàng</th><th>Liên hệ</th><th>Độ tuổi</th><th>Loại da</th>
-            <th>Sở thích</th><th>Trạng thái</th><th>Ngày ĐK</th><th>Hành động</th>
+            <th>Sở thích</th><th>Tương tác CRM</th><th>Trạng thái</th><th>Ngày ĐK</th><th>Hành động</th>
           </tr></thead>
           <tbody>
-            ${customers.length === 0 ? `<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text-muted)">Không tìm thấy khách hàng</td></tr>` : customers.map(c => `
-              <tr class="row-clickable" title="💡 Nhấp đúp (Double-click) để xem và sửa thông tin" ondblclick="openEditCustomerModalById(${c.id})">
-                <td>
-                  <div style="display:flex;align-items:center;gap:10px">
-                    <div class="user-avatar" style="width:34px;height:34px;font-size:13px">${c.full_name ? c.full_name.charAt(0) : 'U'}</div>
-                    <div style="font-weight:600">${escapeHtml(c.full_name)}</div>
+            ${customers.length === 0 ? `<tr><td colspan="9" style="text-align:center;padding:40px;color:var(--text-muted)">Không tìm thấy khách hàng</td></tr>` : customers.map(c => {
+      const fbCount = Number(c.feedback_count) || 0;
+      const svCount = Number(c.survey_count) || 0;
+      const interactionCount = fbCount + svCount;
+
+      let interactionHtml = `<span style="color:var(--text-muted);font-size:12px">Chưa có tương tác</span>`;
+      if (interactionCount > 0) {
+        interactionHtml = `
+                  <div>
+                    ${fbCount > 0 ? `
+                      <div style="display:flex;align-items:center;gap:4px">
+                        <span style="color:#fbbf24;font-weight:600">⭐ ${c.avg_rating !== null && c.avg_rating !== undefined ? Number(c.avg_rating).toFixed(1) : '—'}</span>
+                        <span style="font-size:11px;color:var(--text-muted)">(${fbCount} đánh giá)</span>
+                      </div>
+                    ` : ''}
+                    ${svCount > 0 ? `
+                      <div style="font-size:11px;color:#a78bfa;margin-top:2px;font-weight:500">📋 ${svCount} khảo sát</div>
+                    ` : ''}
                   </div>
-                </td>
-                <td style="font-size:12px;color:var(--text-secondary)">${escapeHtml(c.email || c.phone || '—')}</td>
-                <td style="text-align:center">${c.age ? `<strong>${c.age}</strong> tuổi` : '—'}</td>
-                <td>${c.skin_type ? `<span class="tag" style="font-size:11px">${escapeHtml(c.skin_type)}</span>` : '—'}</td>
-                <td style="max-width:160px">
-                  <div class="tag-list">
-                    ${c.beauty_preferences ? c.beauty_preferences.split(',').slice(0, 2).map(p => `<span class="tag" style="font-size:10px">${escapeHtml(p.trim())}</span>`).join('') : '—'}
-                  </div>
-                </td>
-                <td>${statusBadge(c.status)}</td>
-                <td style="font-size:11px;color:var(--text-muted)">${formatDate(c.created_at)}</td>
-                <td onclick="event.stopPropagation()">
-                  <div style="display:flex;gap:6px">
-                    ${c.status === 'ACTIVE'
-                      ? `<button class="btn btn-warning btn-sm" title="Khóa tài khoản" onclick="toggleCustomerStatus(${c.id},'LOCKED','${c.full_name.replace(/'/g, "\\'")}')">🔒</button>`
-                      : `<button class="btn btn-success btn-sm" title="Mở khóa tài khoản" onclick="toggleCustomerStatus(${c.id},'ACTIVE','${c.full_name.replace(/'/g, "\\'")}')">🔓</button>`
-                    }
-                    <button class="btn btn-trash btn-sm" title="Xóa khách hàng" onclick="deleteCustomer(${c.id},'${c.full_name.replace(/'/g, "\\'")}')"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>
-                  </div>
-                </td>
-              </tr>
-            `).join('')}
+                `;
+      }
+
+      return `
+                <tr class="row-clickable" title="💡 Nhấp đúp (Double-click) để xem và sửa thông tin" ondblclick="openEditCustomerModalById(${c.id})">
+                  <td>
+                    <div style="display:flex;align-items:center;gap:10px">
+                      <div class="user-avatar" style="width:34px;height:34px;font-size:13px">${c.full_name ? c.full_name.charAt(0) : 'U'}</div>
+                      <div style="font-weight:600">${escapeHtml(c.full_name)}</div>
+                    </div>
+                  </td>
+                  <td style="font-size:12px;color:var(--text-secondary)">${escapeHtml(c.email || c.phone || '—')}</td>
+                  <td style="text-align:center">${c.age ? `<strong>${c.age}</strong> tuổi` : '—'}</td>
+                  <td>${c.skin_type ? `<span class="tag" style="font-size:11px">${escapeHtml(c.skin_type)}</span>` : '—'}</td>
+                  <td style="max-width:160px">
+                    <div class="tag-list">
+                      ${c.beauty_preferences ? c.beauty_preferences.split(',').slice(0, 2).map(p => `<span class="tag" style="font-size:10px">${escapeHtml(p.trim())}</span>`).join('') : '—'}
+                    </div>
+                  </td>
+                  <td>${interactionHtml}</td>
+                  <td>${statusBadge(c.status)}</td>
+                  <td style="font-size:11px;color:var(--text-muted)">${formatDate(c.created_at)}</td>
+                  <td onclick="event.stopPropagation()">
+                    <div style="display:flex;gap:6px">
+                      ${c.status === 'ACTIVE'
+          ? `<button class="btn btn-warning btn-sm" title="Khóa tài khoản" onclick="toggleCustomerStatus(${c.id},'LOCKED','${c.full_name.replace(/'/g, "\\'")}')">🔒</button>`
+          : `<button class="btn btn-success btn-sm" title="Mở khóa tài khoản" onclick="toggleCustomerStatus(${c.id},'ACTIVE','${c.full_name.replace(/'/g, "\\'")}')">🔓</button>`
+        }
+                      <button class="btn btn-trash btn-sm" title="${interactionCount > 0 ? 'Khóa tài khoản (bảo toàn lịch sử CRM)' : 'Xóa vĩnh viễn'}" onclick="deleteCustomer(${c.id},'${c.full_name.replace(/'/g, "\\'")}',${interactionCount})"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>
+                    </div>
+                  </td>
+                </tr>
+              `;
+    }).join('')}
           </tbody>
         </table>
       </div>
@@ -972,7 +1107,7 @@ function openCreateCustomerModal() {
       <div class="form-group"><label>Sở thích làm đẹp</label>
         <select id="mc-pref">
           <option value="">-- Chọn sở thích --</option>
-          ${['Trang điểm', 'Chăm sóc da', 'Chống lão hóa', 'Trị mụn', 'Dưỡng ẩm', 'Organic', 'Skincare cơ bản'].map(p => `<option value="${p}">${p}</option>`).join('')}
+          ${BEAUTY_PREFERENCE_OPTIONS.map(p => `<option value="${p}">${p}</option>`).join('')}
         </select>
       </div>
     </div>
@@ -1011,9 +1146,20 @@ function openEditCustomerModal(c) {
   if (typeof c === 'string') c = JSON.parse(c.replace(/&quot;/g, '"'));
   const currentPref = (c.beauty_preferences || '').split(',')[0]?.trim() || '';
   const skinTypes = ['Da dầu', 'Da khô', 'Da hỗn hợp', 'Da nhạy cảm', 'Da thường'];
-  const prefOptions = ['Trang điểm', 'Chăm sóc da', 'Chống lão hóa', 'Trị mụn', 'Dưỡng ẩm', 'Organic', 'Skincare cơ bản'];
+  const prefOptions = BEAUTY_PREFERENCE_OPTIONS;
+  const fbCount = Number(c.feedback_count) || 0;
+  const svCount = Number(c.survey_count) || 0;
+  const hasInteractions = fbCount > 0 || svCount > 0;
 
   showModal(`✏️ Xem & Sửa khách hàng: ${escapeHtml(c.full_name)}`, `
+    ${hasInteractions ? `
+      <div style="background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.3);border-radius:var(--radius-md);padding:10px 14px;margin-bottom:16px;display:flex;align-items:flex-start;gap:10px;font-size:12px;color:#93c5fd;line-height:1.5">
+        <span style="font-size:18px;line-height:1">ℹ️</span>
+        <div>
+          <strong>Khách hàng này đã có ${fbCount} đánh giá sản phẩm và ${svCount} phản hồi khảo sát trong hệ thống CRM.</strong>
+        </div>
+      </div>
+    ` : ''}
     <div class="form-row">
       <div class="form-group">
         <label>Tên đăng nhập *</label>
@@ -1129,11 +1275,22 @@ async function toggleCustomerStatus(accountId, newStatus, name) {
   } catch (e) { toast(e.message, 'error'); }
 }
 
-async function deleteCustomer(accountId, name) {
-  if (!confirm(`Xác nhận xóa tài khoản khách hàng "${name}"?`)) return;
+async function deleteCustomer(accountId, name, interactionCount) {
+  const count = Number(interactionCount) || 0;
+  if (count > 0) {
+    const ok = confirm(
+      `Khách hàng "${name}" đã có dữ liệu đánh giá/khảo sát CRM.\n\n` +
+      `Để bảo toàn dữ liệu thống kê CRM, tài khoản sẽ KHÔNG bị xóa vĩnh viễn khỏi Database mà tự động chuyển sang trạng thái "Khóa tài khoản".\n\n` +
+      `Bạn có đồng ý tiếp tục?`
+    );
+    if (!ok) return;
+  } else {
+    if (!confirm(`Xác nhận xóa vĩnh viễn tài khoản khách hàng "${name}" khỏi cơ sở dữ liệu?`)) return;
+  }
+
   try {
-    await api('DELETE', `/api/manager/customers/${accountId}`);
-    toast('Đã xóa khách hàng', 'success');
+    const res = await api('DELETE', `/api/manager/customers/${accountId}`);
+    toast(res.message || 'Đã xử lý tài khoản khách hàng', 'success');
     renderManagerCustomers();
   } catch (e) { toast(e.message, 'error'); }
 }
@@ -1193,7 +1350,7 @@ async function openEditSurveyModal(id) {
     const prodChecks = products.map(p => `
       <label class="survey-option-label" style="font-size:12px">
         <input type="checkbox" name="esv-product" value="${p.id}" ${targetProductIds.has(Number(p.id)) ? 'checked' : ''} style="accent-color:var(--rose-500)">
-        <span>${escapeHtml(p.name)} <span style="color:var(--text-muted);font-size:11px">${p.launch_status === 'UPCOMING' ? '⏳ Sắp ra mắt' : '✅ Chính thức'}</span></span>
+        <span>${escapeHtml(p.name)} <span style="color:var(--text-muted);font-size:11px">${p.launch_status === 'UPCOMING' ? '🚫 Ngừng kinh doanh' : '✓ Đang kinh doanh'}</span></span>
       </label>
     `).join('');
 
@@ -1397,18 +1554,43 @@ async function deleteSurvey(id, title) {
 async function openCreateSurveyModal() {
   const products = await api('GET', '/api/products').catch(() => []);
   const customers = await api('GET', '/api/manager/customers?status=ACTIVE').catch(() => []);
-  const prodChecks = products.map(p => `
-    <label class="survey-option-label" style="font-size:12px">
-      <input type="checkbox" name="sv-product" value="${p.id}" style="accent-color:var(--rose-500)">
-      <span>${p.name} <span style="color:var(--text-muted);font-size:11px">${p.launch_status === 'UPCOMING' ? '⏳ Sắp ra mắt' : '✅ Chính thức'}</span></span>
-    </label>
-  `).join('');
-  const customerChecks = customers.map(c => `
-    <label class="survey-option-label" style="font-size:12px">
-      <input type="checkbox" name="sv-recipient" value="${c.customer_id}" checked style="accent-color:var(--rose-500)">
-      <span>${c.full_name} <span style="color:var(--text-muted)">@${c.username}</span></span>
-    </label>
-  `).join('');
+
+  // Đẩy sản phẩm "Đang kinh doanh" lên đầu
+  const sortedProducts = [...products].sort((a, b) => {
+    if (a.launch_status === 'OFFICIAL' && b.launch_status !== 'OFFICIAL') return -1;
+    if (a.launch_status !== 'OFFICIAL' && b.launch_status === 'OFFICIAL') return 1;
+    return (a.name || '').localeCompare(b.name || '');
+  });
+
+  const prodChecks = sortedProducts.map(p => {
+    const isOfficial = p.launch_status === 'OFFICIAL';
+    return `
+      <label class="survey-option-label" style="font-size:12px;cursor:pointer">
+        <input type="checkbox" name="sv-product" value="${p.id}" data-official="${isOfficial ? '1' : '0'}" style="accent-color:var(--rose-500)">
+        <span>${escapeHtml(p.name)} <span style="font-size:11px;font-weight:600;color:${isOfficial ? '#10b981' : '#94a3b8'}">${isOfficial ? '✓ Đang kinh doanh' : '🚫 Ngừng kinh doanh'}</span></span>
+      </label>
+    `;
+  }).join('');
+
+  const customerChecks = customers.map(c => {
+    const skinText = c.skin_type || 'Chưa rõ da';
+    const normalizedPrefs = (c.beauty_preferences || '')
+      .split(',')
+      .map(normalizeBeautyPreferenceLabel)
+      .filter(Boolean);
+    const prefText = normalizedPrefs[0] || '—';
+    return `
+      <label class="survey-option-label sv-recipient-item" data-skin="${escapeHtml(c.skin_type || '')}" data-prefs="${escapeHtml(normalizedPrefs.join(','))}" style="font-size:12px;cursor:pointer">
+        <input type="checkbox" name="sv-recipient" value="${c.customer_id}" checked onchange="updateSurveyRecipientCount()" style="accent-color:var(--rose-500)">
+        <span>
+          <strong>${escapeHtml(c.full_name)}</strong> <span style="color:var(--text-muted);font-size:11px">@${escapeHtml(c.username)}</span>
+          <span class="badge" style="background:rgba(244,63,94,0.1);color:#f43f5e;font-size:10px;padding:1px 6px;margin-left:4px">
+            ${escapeHtml(skinText)} • ${escapeHtml(prefText)}
+          </span>
+        </span>
+      </label>
+    `;
+  }).join('');
 
   showModal('➕ Tạo chiến dịch khảo sát mới', `
     <div class="form-group"><label>Tiêu đề khảo sát *</label><input id="sv-title" placeholder="VD: Khảo sát thị hiếu Son môi Hè 2026"></div>
@@ -1430,9 +1612,29 @@ async function openCreateSurveyModal() {
 
     <div class="form-group">
       <label>Gửi đến tài khoản khách hàng</label>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <span style="font-size:12px;color:var(--text-muted)">Mặc định chọn toàn bộ khách hàng đang hoạt động.</span>
-        <button type="button" class="btn btn-secondary btn-sm" onclick="toggleAllSurveyRecipients()">Chọn/Bỏ tất cả</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
+        <span style="font-size:12px;color:var(--text-muted)">Đã chọn <strong id="sv-recipient-count">${customers.length}</strong>/${customers.length} khách hàng đang hoạt động.</span>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <select id="sv-recipient-segment" onchange="filterSurveyRecipientsBySegment(this.value)" style="padding:4px 8px;font-size:12px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-main)">
+            <option value="ALL">🎯 Lọc theo phân khúc...</option>
+            <optgroup label="🧴 Theo Loại da">
+              <option value="SKIN:Da dầu">Da dầu</option>
+              <option value="SKIN:Da khô">Da khô</option>
+              <option value="SKIN:Da hỗn hợp">Da hỗn hợp</option>
+              <option value="SKIN:Da nhạy cảm">Da nhạy cảm</option>
+              <option value="SKIN:Da thường">Da thường</option>
+            </optgroup>
+            <optgroup label="💅 Theo Sở thích làm đẹp">
+              <option value="PREF:Chăm sóc da (Skincare)">Chăm sóc da (Skincare)</option>
+              <option value="PREF:Trang điểm">Trang điểm</option>
+              <option value="PREF:Chống lão hóa">Chống lão hóa</option>
+              <option value="PREF:Trị mụn">Trị mụn</option>
+              <option value="PREF:Dưỡng ẩm">Dưỡng ẩm</option>
+              <option value="PREF:Organic">Organic</option>
+            </optgroup>
+          </select>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="toggleAllSurveyRecipients()">Chọn/Bỏ tất cả</button>
+        </div>
       </div>
       <div style="max-height:180px;overflow:auto;display:grid;grid-template-columns:1fr 1fr;gap:8px">
         ${customerChecks || '<p style="font-size:12px;color:var(--text-muted)">Chưa có khách hàng hoạt động.</p>'}
@@ -1440,9 +1642,13 @@ async function openCreateSurveyModal() {
     </div>
 
     <div style="border-top:1px solid var(--border);margin:8px 0;padding-top:16px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
         <strong style="font-size:14px">📝 Danh sách câu hỏi</strong>
-        <button class="btn btn-secondary btn-sm" onclick="addSurveyQuestion()">➕ Thêm câu hỏi</button>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <button type="button" class="btn btn-outline-rose btn-sm" onclick="applySurveyTemplate('BEAUTY_PREF')">💄 Mẫu Thị hiếu & Sản phẩm</button>
+          <button type="button" class="btn btn-outline-purple btn-sm" onclick="applySurveyTemplate('SERVICE_EXP')">🛍️ Mẫu Trải nghiệm dịch vụ</button>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="addSurveyQuestion()">➕ Thêm câu hỏi</button>
+        </div>
       </div>
       <div id="questions-container" style="display:flex;flex-direction:column;gap:12px"></div>
     </div>
@@ -1457,8 +1663,91 @@ async function openCreateSurveyModal() {
   addSurveyQuestion();
 }
 
+function filterSurveyRecipientsBySegment(val) {
+  const items = [...document.querySelectorAll('.sv-recipient-item')];
+  if (items.length === 0) return;
+
+  if (!val || val === 'ALL') {
+    items.forEach(item => {
+      item.classList.remove('hidden');
+      const cb = item.querySelector('input[name="sv-recipient"]');
+      if (cb) cb.checked = true;
+    });
+    updateSurveyRecipientCount();
+    toast('Đã chọn toàn bộ khách hàng hoạt động', 'info');
+    return;
+  }
+
+  let count = 0;
+  const [segmentType, ...rawValue] = String(val).split(':');
+  const targetValue = rawValue.join(':').trim();
+  items.forEach(item => {
+    const cb = item.querySelector('input[name="sv-recipient"]');
+    const matches = segmentType === 'SKIN'
+      ? (item.dataset.skin || '').trim().toLocaleLowerCase('vi') === targetValue.toLocaleLowerCase('vi')
+      : (item.dataset.prefs || '')
+        .split(',')
+        .map(normalizeBeautyPreferenceLabel)
+        .some(pref => pref.toLocaleLowerCase('vi') === normalizeBeautyPreferenceLabel(targetValue).toLocaleLowerCase('vi'));
+    item.classList.toggle('hidden', !matches);
+    if (cb) cb.checked = matches;
+    if (matches) count++;
+  });
+  updateSurveyRecipientCount();
+  toast(`Đã lọc và chọn phân khúc: ${targetValue} (${count} khách hàng)`, 'info');
+}
+
+function updateSurveyRecipientCount() {
+  const count = document.querySelectorAll('input[name="sv-recipient"]:checked').length;
+  const countEl = document.getElementById('sv-recipient-count');
+  if (countEl) countEl.textContent = String(count);
+}
+
+function applySurveyTemplate(type) {
+  const container = document.getElementById('questions-container');
+  if (!container) return;
+  container.innerHTML = '';
+  questionCount = 0;
+
+  if (type === 'BEAUTY_PREF') {
+    addSurveyQuestionWithData(
+      'Cảm nhận và mức độ phù hợp của bạn đối với dòng sản phẩm',
+      'SINGLE_CHOICE',
+      'Rất thích & hợp da, Bình thường, Không phù hợp / Kích ứng nhẹ'
+    );
+    addSurveyQuestionWithData(
+      'Yếu tố bạn quan tâm hàng đầu khi lựa chọn mỹ phẩm làm đẹp',
+      'MULTI_CHOICE',
+      'Thành phần an toàn lành tính, Hiệu quả thực tế rõ rệt, Thương hiệu uy tín, Giá thành hợp lý, Bao bì tiện lợi & sang trọng'
+    );
+    addSurveyQuestionWithData(
+      'Mức độ hài lòng tổng quan của bạn về sản phẩm',
+      'RATING',
+      ''
+    );
+    toast('Đã nạp Mẫu khảo sát Thị hiếu & Sản phẩm (3 câu hỏi)', 'success');
+  } else if (type === 'SERVICE_EXP') {
+    addSurveyQuestionWithData(
+      'Đánh giá chất lượng tư vấn và giải đáp chuyên môn của nhân viên',
+      'RATING',
+      ''
+    );
+    addSurveyQuestionWithData(
+      'Đánh giá quy cách đóng gói chống sốc và tốc độ giao hàng',
+      'SINGLE_CHOICE',
+      'Rất nhanh & đóng gói cẩn thận, Đúng hẹn & bình thường, Giao chậm hoặc bao bì bị móp méo'
+    );
+    addSurveyQuestionWithData(
+      'Góp ý hoặc đề xuất thêm để chúng tôi nâng cao chất lượng dịch vụ',
+      'TEXT',
+      ''
+    );
+    toast('Đã nạp Mẫu khảo sát Trải nghiệm dịch vụ (3 câu hỏi)', 'success');
+  }
+}
+
 let questionCount = 0;
-function addSurveyQuestion() {
+function addSurveyQuestionWithData(text = '', type = 'SINGLE_CHOICE', options = '') {
   questionCount++;
   const container = document.getElementById('questions-container');
   if (!container) return;
@@ -1467,20 +1756,24 @@ function addSurveyQuestion() {
   div.style.cssText = 'background:var(--bg-card-solid);border:1px solid var(--border);border-radius:10px;padding:14px';
   div.innerHTML = `
     <div style="display:flex;gap:10px;margin-bottom:10px">
-      <input placeholder="Nội dung câu hỏi ${questionCount}..." id="q-text-${questionCount}" style="flex:1">
+      <input placeholder="Nội dung câu hỏi ${questionCount}..." id="q-text-${questionCount}" value="${escapeHtml(text)}" style="flex:1">
       <select id="q-type-${questionCount}" onchange="toggleOptionsField(${questionCount})" style="width:160px">
-        <option value="SINGLE_CHOICE">Một lựa chọn</option>
-        <option value="MULTI_CHOICE">Nhiều lựa chọn</option>
-        <option value="RATING">Đánh giá sao</option>
-        <option value="TEXT">Nhập văn bản</option>
+        <option value="SINGLE_CHOICE" ${type === 'SINGLE_CHOICE' ? 'selected' : ''}>Một lựa chọn</option>
+        <option value="MULTI_CHOICE" ${type === 'MULTI_CHOICE' ? 'selected' : ''}>Nhiều lựa chọn</option>
+        <option value="RATING" ${type === 'RATING' ? 'selected' : ''}>Đánh giá sao</option>
+        <option value="TEXT" ${type === 'TEXT' ? 'selected' : ''}>Nhập văn bản</option>
       </select>
-      <button class="btn btn-danger btn-sm btn-icon" onclick="removeQuestion(${questionCount})">✕</button>
+      <button type="button" class="btn btn-danger btn-sm btn-icon" onclick="removeQuestion(${questionCount})">✕</button>
     </div>
-    <div id="q-options-wrap-${questionCount}">
-      <input placeholder="Các lựa chọn, phân tách bằng dấu phẩy. VD: Lựa chọn A, Lựa chọn B, Lựa chọn C" id="q-options-${questionCount}">
+    <div id="q-options-wrap-${questionCount}" style="${(type === 'RATING' || type === 'TEXT') ? 'display:none' : 'display:block'}">
+      <input placeholder="Các lựa chọn, phân tách bằng dấu phẩy. VD: Lựa chọn A, Lựa chọn B, Lựa chọn C" id="q-options-${questionCount}" value="${escapeHtml(options)}">
     </div>
   `;
   container.appendChild(div);
+}
+
+function addSurveyQuestion() {
+  addSurveyQuestionWithData('', 'SINGLE_CHOICE', '');
 }
 
 function removeQuestion(n) {
@@ -1495,15 +1788,18 @@ function toggleOptionsField(n) {
 }
 
 function toggleAllSurveyRecipients() {
-  const boxes = [...document.querySelectorAll('input[name="sv-recipient"]')];
+  const boxes = [...document.querySelectorAll('.sv-recipient-item:not(.hidden) input[name="sv-recipient"]')];
+  if (!boxes.length) return;
   const shouldCheck = boxes.some(b => !b.checked);
   boxes.forEach(b => { b.checked = shouldCheck; });
+  updateSurveyRecipientCount();
 }
 
 function toggleAllSurveyProducts() {
-  const boxes = [...document.querySelectorAll('input[name="sv-product"]')];
-  const shouldCheck = boxes.some(b => !b.checked);
-  boxes.forEach(b => { b.checked = shouldCheck; });
+  const officialBoxes = [...document.querySelectorAll('input[name="sv-product"][data-official="1"]')];
+  if (officialBoxes.length === 0) return;
+  const shouldCheck = officialBoxes.some(b => !b.checked);
+  officialBoxes.forEach(b => { b.checked = shouldCheck; });
 }
 
 async function createSurvey(status) {
@@ -1624,11 +1920,10 @@ let activeSurveyResultTab = 'questions';
 
 function cleanQuestionTitle(text, i) {
   if (!text) return '';
-  const trimmed = text.trim();
-  if (/^(\d+(\.\d+)*[\.\):]|\d+\s+|câu\s+\d+[:\.]?)/i.test(trimmed)) {
-    return trimmed;
-  }
-  return `${i + 1}. ${trimmed}`;
+  let cleaned = text.trim();
+  // Xóa bỏ triệt để mọi tiền tố số thứ tự / câu số đã có từ DB để tránh lặp số 1. 1.
+  cleaned = cleaned.replace(/^((câu\s*\d+[\.:\s]*|\d+[\.\):\s]+)+)/i, '').trim();
+  return `${i + 1}. ${cleaned}`;
 }
 
 function getStarColor(val) {
@@ -1672,7 +1967,7 @@ async function sendSurveyReminder(surveyId, customerId = null, remindAll = false
 async function viewSurveyResults(id, title) {
   showModal(`📊 Kết quả: ${title}`, `<div class="loading-spinner"><div class="spinner"></div></div>`, true);
   const modalEl = document.getElementById('modal');
-  if (modalEl) modalEl.style.maxWidth = '880px';
+  if (modalEl) modalEl.style.maxWidth = '900px';
 
   try {
     const data = await api('GET', `/api/manager/surveys/${id}/results`);
@@ -1694,36 +1989,36 @@ async function viewSurveyResults(id, title) {
         <div class="survey-chip-item">
           <div class="survey-chip-icon" style="background:rgba(16,185,129,0.12);color:#059669">✅</div>
           <div>
-            <div class="survey-chip-label">Đã trả lời</div>
+            <div class="survey-chip-label">Đã phản hồi</div>
             <div class="survey-chip-val">${stats.respondents_count} <small style="font-size:11px;font-weight:600;color:#059669">(${stats.response_rate}%)</small></div>
           </div>
         </div>
         <div class="survey-chip-item">
           <div class="survey-chip-icon" style="background:rgba(245,158,11,0.12);color:#d97706">⏳</div>
           <div>
-            <div class="survey-chip-label">Chưa trả lời</div>
+            <div class="survey-chip-label">Chưa tham gia</div>
             <div class="survey-chip-val" style="color:#d97706">${stats.pending_count} khách</div>
           </div>
         </div>
         <div class="survey-chip-item">
           <div class="survey-chip-icon" style="background:rgba(251,191,36,0.15);color:#d97706">⭐</div>
           <div>
-            <div class="survey-chip-label">Điểm TB khảo sát</div>
+            <div class="survey-chip-label">Điểm TB đánh giá</div>
             <div class="survey-chip-val" style="color:#d97706">${stats.overall_avg_rating ? `${stats.overall_avg_rating}★ / 5` : '—'}</div>
           </div>
         </div>
       </div>
 
-      <!-- 3 TAB NGHIỆP VỤ CRM -->
+      <!-- 3 TAB RÕ RÀNG -->
       <div class="modal-tab-nav">
         <button class="modal-tab-btn active" id="stb-questions" onclick="switchSurveyResultTab('questions')">
           📊 Thống kê câu hỏi (${results.length})
         </button>
         <button class="modal-tab-btn" id="stb-respondents" onclick="switchSurveyResultTab('respondents')">
-          👤 Khách hàng đã tham gia (${respondents.length})
+          👤 Khách hàng đã phản hồi (${respondents.length})
         </button>
         <button class="modal-tab-btn" id="stb-recipients" onclick="switchSurveyResultTab('recipients')">
-          📩 Danh sách người nhận & Nhắc nhở (${recipients.length})
+          📩 Theo dõi người nhận (${recipients.length})
         </button>
       </div>
 
@@ -1773,8 +2068,9 @@ function renderSurveyResultTabContent() {
         `;
 
         if (r.distribution) {
-          // r.distribution is ordered 5 -> 1
-          r.distribution.forEach(d => {
+          // Sắp xếp từ 5 sao xuống 1 sao
+          const sortedDist = [...r.distribution].sort((a, b) => Number(b.value) - Number(a.value));
+          sortedDist.forEach(d => {
             const hasReviewers = d.count > 0 && d.reviewers && d.reviewers.length > 0;
             const drilldownId = `drilldown-${r.question_id}-${d.value}`;
 
@@ -1818,23 +2114,27 @@ function renderSurveyResultTabContent() {
           });
         }
       } else if (r.distribution) {
-        // SINGLE_CHOICE or MULTI_CHOICE
+        // SINGLE_CHOICE or MULTI_CHOICE: Thống kê % và gắn nhãn "🔥 Phổ biến nhất" cho phương án cao nhất
+        const maxCount = Math.max(...r.distribution.map(d => d.count || 0), 0);
+
         r.distribution.forEach((d, dIdx) => {
           const hasReviewers = d.count > 0 && d.reviewers && d.reviewers.length > 0;
           const drilldownId = `drilldown-choice-${r.question_id}-${dIdx}`;
+          const isTopChoice = maxCount > 0 && d.count === maxCount;
 
           html += `
             <div class="result-bar-wrap" style="margin-bottom:8px">
               <div class="result-bar-label ${hasReviewers ? 'drilldown-trigger' : ''}" 
                    ${hasReviewers ? `onclick="toggleSurveyDrilldown('${drilldownId}')" title="Nhấp để xem khách hàng chọn phương án này"` : ''}>
-                <span style="display:flex;align-items:center;gap:6px">
+                <span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
                   <span>${escapeHtml(d.label)} (<strong>${d.count}</strong>)</span>
+                  ${isTopChoice ? `<span class="badge" style="background:rgba(239,68,68,0.12);color:#ef4444;font-size:10px;font-weight:700;padding:2px 6px;border:1px solid rgba(239,68,68,0.25)">🔥 Phổ biến nhất</span>` : ''}
                   ${hasReviewers ? `<span style="font-size:11px;color:var(--green-700);font-weight:600">👥 Xem ai chọn ▾</span>` : ''}
                 </span>
                 <span style="font-weight:600">${d.percent}%</span>
               </div>
               <div class="result-bar">
-                <div class="result-bar-fill" style="width:${d.percent}%;background:var(--green-600)"></div>
+                <div class="result-bar-fill" style="width:${d.percent}%;background:${isTopChoice ? '#10b981' : 'var(--green-600)'}"></div>
               </div>
 
               ${hasReviewers ? `
@@ -1893,7 +2193,7 @@ function renderSurveyResultTabContent() {
     return;
   }
 
-  // TAB 2: KHÁCH HÀNG ĐÃ THAM GIA
+  // TAB 2: KHÁCH HÀNG ĐÃ PHẢN HỒI
   if (activeSurveyResultTab === 'respondents') {
     if (respondents.length === 0) {
       container.innerHTML = `
@@ -1914,19 +2214,19 @@ function renderSurveyResultTabContent() {
           <thead>
             <tr>
               <th>KHÁCH HÀNG</th>
-              <th>PHÂN KHÚC CRM</th>
+              <th>LOẠI DA & ĐỘ TUỔI</th>
               <th>ĐIỂM TB PHIẾU</th>
               <th>THỜI GIAN NỘP</th>
-              <th style="text-align:center">CHI TIẾT CÂU TRẢ LỜI</th>
+              <th style="text-align:center">CHI TIẾT ĐÁP ÁN</th>
               <th>NGHIỆP VỤ CSKH</th>
             </tr>
           </thead>
           <tbody>
             ${respondents.map(r => {
-              const contact = [r.email, r.phone].filter(Boolean).join(' · ');
-              let cskhBadge = '<span class="badge badge-pending">⚡ Bình thường</span>';
-              if (r.cskh_status === 'CARE_NEEDED') {
-                cskhBadge = `
+      const contact = [r.email, r.phone].filter(Boolean).join(' · ');
+      let cskhBadge = '<span class="badge badge-pending">⚡ Bình thường</span>';
+      if (r.cskh_status === 'CARE_NEEDED') {
+        cskhBadge = `
                   <div style="display:flex;align-items:center;gap:6px">
                     <span class="badge" style="background:rgba(239,68,68,0.15);color:#ef4444;font-weight:700">⚠️ Cần chăm sóc</span>
                     <button class="btn btn-primary btn-sm" onclick="closeModal(); navigate('manager-feedbacks');" style="font-size:10px;padding:2px 6px" title="Chuyển đến màn hình CSKH">
@@ -1934,11 +2234,11 @@ function renderSurveyResultTabContent() {
                     </button>
                   </div>
                 `;
-              } else if (r.cskh_status === 'SATISFIED') {
-                cskhBadge = '<span class="badge badge-replied">✅ Hài lòng</span>';
-              }
+      } else if (r.cskh_status === 'SATISFIED') {
+        cskhBadge = '<span class="badge badge-replied">✅ Hài lòng</span>';
+      }
 
-              return `
+      return `
                 <tr>
                   <td>
                     <div style="display:flex;align-items:center;gap:8px">
@@ -1946,7 +2246,7 @@ function renderSurveyResultTabContent() {
                         ${r.full_name ? r.full_name.charAt(0) : 'U'}
                       </div>
                       <div>
-                        <strong>${escapeHtml(r.full_name)}</strong>
+                        <strong>${escapeHtml(r.full_name)}</strong> <span style="font-size:11px;color:var(--text-muted)">@${escapeHtml(r.username || '')}</span>
                         ${contact ? `<div style="font-size:11px;color:var(--text-muted)">${escapeHtml(contact)}</div>` : ''}
                       </div>
                     </div>
@@ -1954,7 +2254,7 @@ function renderSurveyResultTabContent() {
                   <td>
                     <div style="display:flex;gap:4px;flex-wrap:wrap">
                       <span class="tag" style="font-size:10px;background:rgba(45,106,79,0.1);color:var(--green-700)">🧴 ${escapeHtml(r.skin_type || 'Chưa rõ')}</span>
-                      <span class="tag" style="font-size:10px;background:rgba(59,130,246,0.1);color:#2563eb">🎂 ${r.age ? `${r.age}t` : '—'}</span>
+                      <span class="tag" style="font-size:10px;background:rgba(59,130,246,0.1);color:#2563eb">🎂 ${r.age ? `${r.age} tuổi` : '—'}</span>
                     </div>
                   </td>
                   <td>
@@ -1966,7 +2266,7 @@ function renderSurveyResultTabContent() {
                   </td>
                   <td style="text-align:center">
                     <button class="btn btn-secondary btn-sm" onclick="toggleRespondentDetail(${r.customer_id})">
-                      👁️ Xem câu trả lời (${r.answers.length}) ▾
+                      👁️ Xem đáp án (${r.answers.length}) ▾
                     </button>
                   </td>
                   <td>${cskhBadge}</td>
@@ -1991,7 +2291,7 @@ function renderSurveyResultTabContent() {
                   </td>
                 </tr>
               `;
-            }).join('')}
+    }).join('')}
           </tbody>
         </table>
       </div>
@@ -2000,7 +2300,7 @@ function renderSurveyResultTabContent() {
     return;
   }
 
-  // TAB 3: DANH SÁCH NGƯỜI NHẬN & NHẮC NHỞ
+  // TAB 3: THEO DÕI NGƯỜI NHẬN
   if (activeSurveyResultTab === 'recipients') {
     let html = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px">
@@ -2025,8 +2325,8 @@ function renderSurveyResultTabContent() {
           </thead>
           <tbody>
             ${recipients.map(r => {
-              const contact = [r.email, r.phone].filter(Boolean).join(' · ');
-              return `
+      const contact = [r.email, r.phone].filter(Boolean).join(' · ');
+      return `
                 <tr>
                   <td>
                     <div style="display:flex;align-items:center;gap:8px">
@@ -2034,7 +2334,7 @@ function renderSurveyResultTabContent() {
                         ${r.full_name ? r.full_name.charAt(0) : 'U'}
                       </div>
                       <div>
-                        <strong>${escapeHtml(r.full_name)}</strong>
+                        <strong>${escapeHtml(r.full_name)}</strong> <span style="font-size:11px;color:var(--text-muted)">@${escapeHtml(r.username || '')}</span>
                         ${contact ? `<div style="font-size:11px;color:var(--text-muted)">${escapeHtml(contact)}</div>` : ''}
                       </div>
                     </div>
@@ -2042,7 +2342,7 @@ function renderSurveyResultTabContent() {
                   <td>
                     <div style="display:flex;gap:4px;flex-wrap:wrap">
                       <span class="tag" style="font-size:10px;background:rgba(45,106,79,0.1);color:var(--green-700)">🧴 ${escapeHtml(r.skin_type || 'Chưa rõ')}</span>
-                      <span class="tag" style="font-size:10px;background:rgba(59,130,246,0.1);color:#2563eb">🎂 ${r.age ? `${r.age}t` : '—'}</span>
+                      <span class="tag" style="font-size:10px;background:rgba(59,130,246,0.1);color:#2563eb">🎂 ${r.age ? `${r.age} tuổi` : '—'}</span>
                     </div>
                   </td>
                   <td>
@@ -2050,9 +2350,9 @@ function renderSurveyResultTabContent() {
                   </td>
                   <td>
                     ${r.already_submitted
-                      ? `<span class="badge badge-replied">✅ Đã hoàn thành</span>`
-                      : `<span class="badge badge-pending" style="background:rgba(245,158,11,0.15);color:#d97706">⏳ Chưa tham gia</span>`
-                    }
+          ? `<span class="badge badge-replied">✅ Đã hoàn thành</span>`
+          : `<span class="badge badge-pending" style="background:rgba(245,158,11,0.15);color:#d97706">⏳ Chưa tham gia</span>`
+        }
                   </td>
                   <td style="text-align:center">
                     ${!r.already_submitted ? `
@@ -2065,7 +2365,7 @@ function renderSurveyResultTabContent() {
                   </td>
                 </tr>
               `;
-            }).join('')}
+    }).join('')}
           </tbody>
         </table>
       </div>

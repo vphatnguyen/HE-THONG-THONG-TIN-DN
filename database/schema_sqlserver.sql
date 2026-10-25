@@ -212,6 +212,7 @@ CREATE INDEX IX_Products_LaunchStatus ON dbo.Products(launch_status);
 CREATE INDEX IX_Products_Price ON dbo.Products(price);
 CREATE INDEX IX_Feedbacks_Status ON dbo.Feedbacks(status);
 CREATE INDEX IX_Feedbacks_Rating ON dbo.Feedbacks(rating);
+CREATE UNIQUE INDEX UX_Feedbacks_Customer_Product ON dbo.Feedbacks(customer_id, product_id);
 CREATE INDEX IX_Customers_Age ON dbo.Customers(age);
 CREATE INDEX IX_Accounts_Role ON dbo.Accounts(role);
 CREATE INDEX IX_Surveys_Status ON dbo.Surveys(status);
@@ -223,32 +224,32 @@ GO
 
 -- Dữ liệu tài khoản
 INSERT INTO dbo.Accounts (username, password, full_name, email, phone, role, status) VALUES
-(N'admin',    N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Nguyễn Văn Admin',   N'admin@beautycrm.vn',      N'0901000001', 'ADMIN',    'ACTIVE'),
-(N'manager1', N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Trần Thị Lan',       N'lan.tran@beautycrm.vn',   N'0902000001', 'MANAGER',  'ACTIVE'),
-(N'manager2', N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Lê Minh Hương',      N'huong.le@beautycrm.vn',   N'0902000002', 'MANAGER',  'ACTIVE'),
-(N'khach001', N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Nguyễn Thị Mai',    N'mai.nguyen@gmail.com',    N'0903000001', 'CUSTOMER', 'ACTIVE'),
-(N'khach002', N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Phạm Thu Hà',       N'ha.pham@gmail.com',       N'0903000002', 'CUSTOMER', 'ACTIVE'),
-(N'khach003', N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Hoàng Thị Linh',    N'linh.hoang@gmail.com',    N'0903000003', 'CUSTOMER', 'ACTIVE'),
-(N'khach004', N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Đặng Thị Phương',   N'phuong.dang@gmail.com',   N'0903000004', 'CUSTOMER', 'ACTIVE'),
-(N'khach005', N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Vũ Thị Nga',        N'nga.vu@gmail.com',        N'0903000005', 'CUSTOMER', 'ACTIVE'),
-(N'khach006', N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Bùi Thị Thảo',      N'thao.bui@gmail.com',      N'0903000006', 'CUSTOMER', 'LOCKED'),
-(N'khach007', N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Lý Thị Kim',        N'kim.ly@gmail.com',        N'0903000007', 'CUSTOMER', 'ACTIVE'),
-(N'khach008', N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Trịnh Thị Loan',    N'loan.trinh@gmail.com',    N'0903000008', 'CUSTOMER', 'ACTIVE'),
-(N'khach009', N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Đinh Văn Nam',      N'nam.dinh@gmail.com',      N'0903000009', 'CUSTOMER', 'ACTIVE'),
-(N'khach010', N'$2a$10$rBV2JDeWW3.vKRhfOxHuGOCjfzBJJRBGDd3m2OoxmVDdq9wdm.KJC', N'Cao Thị Yến',       N'yen.cao@gmail.com',       N'0903000010', 'CUSTOMER', 'ACTIVE');
+(N'admin',    N'$2a$10$5ju14buoP6cN7pAFSfJEPeE.karsWdiYX.nC8QSfvOQKgBE4T2KwO', N'Nguyễn Văn Admin',   N'admin@beautycrm.vn',      N'0901000001', 'ADMIN',    'ACTIVE'),
+(N'manager1', N'$2a$10$nViHBYnT3PSjEta04ldIfOwZd.lQJAhNjKV74AfA6qML6MxOjwbwy', N'Trần Thị Lan',       N'lan.tran@beautycrm.vn',   N'0902000001', 'MANAGER',  'ACTIVE'),
+(N'manager2', N'$2a$10$nViHBYnT3PSjEta04ldIfOwZd.lQJAhNjKV74AfA6qML6MxOjwbwy', N'Lê Minh Hương',      N'huong.le@beautycrm.vn',   N'0902000002', 'MANAGER',  'ACTIVE'),
+(N'khach001', N'$2a$10$DsEPhB8CwR/wJ5oULYSzwescBVlyVdFR3OZOIqbc6FmxzkEm2RPrG', N'Nguyễn Thị Mai',    N'mai.nguyen@gmail.com',    N'0903000001', 'CUSTOMER', 'ACTIVE'),
+(N'khach002', N'$2a$10$DsEPhB8CwR/wJ5oULYSzwescBVlyVdFR3OZOIqbc6FmxzkEm2RPrG', N'Phạm Thu Hà',       N'ha.pham@gmail.com',       N'0903000002', 'CUSTOMER', 'ACTIVE'),
+(N'khach003', N'$2a$10$DsEPhB8CwR/wJ5oULYSzwescBVlyVdFR3OZOIqbc6FmxzkEm2RPrG', N'Hoàng Thị Linh',    N'linh.hoang@gmail.com',    N'0903000003', 'CUSTOMER', 'ACTIVE'),
+(N'khach004', N'$2a$10$DsEPhB8CwR/wJ5oULYSzwescBVlyVdFR3OZOIqbc6FmxzkEm2RPrG', N'Đặng Thị Phương',   N'phuong.dang@gmail.com',   N'0903000004', 'CUSTOMER', 'ACTIVE'),
+(N'khach005', N'$2a$10$DsEPhB8CwR/wJ5oULYSzwescBVlyVdFR3OZOIqbc6FmxzkEm2RPrG', N'Vũ Thị Nga',        N'nga.vu@gmail.com',        N'0903000005', 'CUSTOMER', 'ACTIVE'),
+(N'khach006', N'$2a$10$DsEPhB8CwR/wJ5oULYSzwescBVlyVdFR3OZOIqbc6FmxzkEm2RPrG', N'Bùi Thị Thảo',      N'thao.bui@gmail.com',      N'0903000006', 'CUSTOMER', 'LOCKED'),
+(N'khach007', N'$2a$10$DsEPhB8CwR/wJ5oULYSzwescBVlyVdFR3OZOIqbc6FmxzkEm2RPrG', N'Lý Thị Kim',        N'kim.ly@gmail.com',        N'0903000007', 'CUSTOMER', 'ACTIVE'),
+(N'khach008', N'$2a$10$DsEPhB8CwR/wJ5oULYSzwescBVlyVdFR3OZOIqbc6FmxzkEm2RPrG', N'Trịnh Thị Loan',    N'loan.trinh@gmail.com',    N'0903000008', 'CUSTOMER', 'ACTIVE'),
+(N'khach009', N'$2a$10$DsEPhB8CwR/wJ5oULYSzwescBVlyVdFR3OZOIqbc6FmxzkEm2RPrG', N'Đinh Văn Nam',      N'nam.dinh@gmail.com',      N'0903000009', 'CUSTOMER', 'ACTIVE'),
+(N'khach010', N'$2a$10$DsEPhB8CwR/wJ5oULYSzwescBVlyVdFR3OZOIqbc6FmxzkEm2RPrG', N'Cao Thị Yến',       N'yen.cao@gmail.com',       N'0903000010', 'CUSTOMER', 'ACTIVE');
 GO
 
 -- Dữ liệu khách hàng (hồ sơ làm đẹp)
 INSERT INTO dbo.Customers (account_id, age, gender, skin_type, beauty_preferences, membership_tier) VALUES
 (4,  24, N'Nu', N'Da dầu',       N'Trang điểm,Chống lão hóa',       'SILVER'),
-(5,  19, N'Nu', N'Da khô',       N'Chăm sóc da,Dưỡng ẩm',           'BRONZE'),
+(5,  19, N'Nu', N'Da khô',       N'Chăm sóc da (Skincare),Dưỡng ẩm',           'BRONZE'),
 (6,  31, N'Nu', N'Da hỗn hợp',   N'Chống lão hóa,Trị mụn',          'GOLD'),
-(7,  28, N'Nu', N'Da nhạy cảm',  N'Chăm sóc da,Organic',            'SILVER'),
-(8,  22, N'Nu', N'Da thường',    N'Trang điểm,Chăm sóc da',         'BRONZE'),
-(9,  35, N'Nu', N'Da dầu',       N'Trị mụn,Chăm sóc da',            'GOLD'),
-(10, 42, N'Nu', N'Da khô',       N'Chống lão hóa,Dưỡng da',         'PLATINUM'),
-(11, 17, N'Nu', N'Da thường',    N'Trang điểm,Skincare cơ bản',     'BRONZE'),
-(12, 38, N'Nam', N'Da dầu',      N'Chăm sóc da,Dưỡng ẩm',          'SILVER'),
+(7,  28, N'Nu', N'Da nhạy cảm',  N'Chăm sóc da (Skincare),Organic',            'SILVER'),
+(8,  22, N'Nu', N'Da thường',    N'Trang điểm,Chăm sóc da (Skincare)',         'BRONZE'),
+(9,  35, N'Nu', N'Da dầu',       N'Trị mụn,Chăm sóc da (Skincare)',            'GOLD'),
+(10, 42, N'Nu', N'Da khô',       N'Chống lão hóa,Dưỡng ẩm',         'PLATINUM'),
+(11, 17, N'Nu', N'Da thường',    N'Trang điểm,Chăm sóc da (Skincare)',     'BRONZE'),
+(12, 38, N'Nam', N'Da dầu',      N'Chăm sóc da (Skincare),Dưỡng ẩm',          'SILVER'),
 (13, 26, N'Nu', N'Da hỗn hợp',   N'Trang điểm,Chống lão hóa,Trị mụn', 'GOLD');
 GO
 

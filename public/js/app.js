@@ -3,7 +3,7 @@
    ============================================================ */
 
 let state = { token: null, user: null, customer: null, currentPage: null };
-const BEAUTY_PREFERENCE_OPTIONS = ['Trang điểm', 'Chăm sóc da', 'Chống lão hóa', 'Trị mụn', 'Dưỡng ẩm', 'Organic', 'Skincare cơ bản'];
+const BEAUTY_PREFERENCE_OPTIONS = ['Chăm sóc da (Skincare)', 'Trang điểm', 'Chống lão hóa', 'Trị mụn', 'Dưỡng ẩm', 'Organic'];
 
 // ========== UTILITIES ==========
 function api(method, url, body) {
@@ -94,10 +94,10 @@ function statusBadge(status) {
   return `<span class="badge ${map[status] || ''}">${label[status] || status}</span>`;
 }
 
-function launchBadge(s) {
+function launchBadge(s, full = false) {
   return s === 'UPCOMING'
-    ? `<span class="badge badge-upcoming">⏳ Sắp ra mắt</span>`
-    : `<span class="badge badge-official">✓ Chính thức</span>`;
+    ? `<span class="badge badge-upcoming" title="Ngừng kinh doanh (Đóng đánh giá)">🚫 Ngừng kinh doanh${full ? ' (Đóng đánh giá)' : ''}</span>`
+    : `<span class="badge badge-official" title="Đang kinh doanh (Mở đánh giá)">✓ Đang kinh doanh${full ? ' (Mở đánh giá)' : ''}</span>`;
 }
 
 function surveyStatusBadge(s) {
@@ -206,7 +206,7 @@ function buildSidebar() {
       { id: 'admin-database', icon: '🗄️', label: 'Sao lưu & Phục hồi DB' },
     ],
     MANAGER: [
-      { label: 'PHÂN HỆ QUẢN LÝ CRM & CỬA HÀNG', type: 'section' },
+      { label: 'PHÂN HỆ QUẢN LÝ CRM', type: 'section' },
       { id: 'manager-dashboard', icon: '📊', label: 'Dashboard & Báo cáo' },
       { id: 'manager-analytics', icon: '📈', label: 'Phân tích CRM' },
       { id: 'manager-customers', icon: '👩', label: 'Quản lý Khách hàng' },

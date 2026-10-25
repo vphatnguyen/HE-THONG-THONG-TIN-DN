@@ -20,9 +20,115 @@ function normalizeBeautyPreferences(value) {
   return [...new Set(String(value || '').split(',').map(item => BEAUTY_PREFERENCE_ALIASES[item.trim()] || item.trim()).filter(item => BEAUTY_PREFERENCES.has(item)))].join(',');
 }
 
+const SURVEY_QUESTION_TYPES = new Set(['SINGLE_CHOICE', 'MULTI_CHOICE', 'RATING', 'TEXT']);
+const SURVEY_STATUSES = new Set(['DRAFT', 'ACTIVE', 'CLOSED']);
+
+function validationError(message) {
+  const error = new Error(message);
+  error.status = 400;
+  return error;
+}
+
+function normalizeSurveyPayload(payload, { allowStatus = false } = {}) {
+  const title = String(payload.title || '').trim();
+  if (!title) throw validationError('Tiêu đề khảo sát là bắt buộc');
+  if (title.length > 200) throw validationError('Tiêu đề khảo sát không được vượt quá 200 ký tự');
+
+  const productIds = Array.isArray(payload.target_product_ids) ? payload.target_product_ids.map(Number) : [];
+  if (!productIds.length || productIds.some(id => !Number.isInteger(id) || id <= 0)) {
+    throw validationError('Vui lòng chọn ít nhất một sản phẩm hợp lệ cho chiến dịch khảo sát');
+  }
+  if (new Set(productIds).size !== productIds.length) throw validationError('Danh sách sản phẩm không được trùng lặp');
+
+  const questions = Array.isArray(payload.questions) ? payload.questions : [];
+  if (!questions.length) throw validationError('Khảo sát phải có ít nhất một câu hỏi');
+  const normalizedQuestions = questions.map((question, index) => {
+    const questionText = String(question?.question_text || '').trim();
+    const questionType = String(question?.question_type || '').trim();
+    if (!questionText) throw validationError(`Câu hỏi ${index + 1} không được để trống`);
+    if (questionText.length > 500) throw validationError(`Câu hỏi ${index + 1} không được vượt quá 500 ký tự`);
+    if (!SURVEY_QUESTION_TYPES.has(questionType)) throw validationError(`Loại câu hỏi ${index + 1} không hợp lệ`);
+
+    let options = null;
+    if (questionType === 'SINGLE_CHOICE' || questionType === 'MULTI_CHOICE') {
+      options = Array.isArray(question.options) ? question.options.map(option => String(option).trim()) : [];
+      if (options.length < 2 || options.some(option => !option)) {
+        throw validationError(`Câu hỏi ${index + 1} phải có ít nhất hai lựa chọn không rỗng`);
+      }
+      if (new Set(options.map(option => option.toLocaleLowerCase('vi'))).size !== options.length) {
+        throw validationError(`Các lựa chọn của câu hỏi ${index + 1} không được trùng lặp`);
+      }
+    }
+    return { question_text: questionText, question_type: questionType, options };
+  });
+  const questionKeys = normalizedQuestions.map(question => question.question_text.toLocaleLowerCase('vi'));
+  if (new Set(questionKeys).size !== questionKeys.length) throw validationError('Nội dung câu hỏi không được trùng lặp');
+
+  const startDate = payload.start_date || null;
+  const endDate = payload.end_date || null;
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  if (startDate && (!datePattern.test(startDate) || isNaN(Date.parse(`${startDate}T00:00:00Z`)))) throw validationError('Ngày bắt đầu không hợp lệ');
+  if (endDate && (!datePattern.test(endDate) || isNaN(Date.parse(`${endDate}T00:00:00Z`)))) throw validationError('Ngày kết thúc không hợp lệ');
+  if (startDate && endDate && startDate > endDate) throw validationError('Ngày kết thúc phải bằng hoặc sau ngày bắt đầu');
+
+  const recipientIds = Array.isArray(payload.recipient_customer_ids)
+    ? payload.recipient_customer_ids.map(Number)
+    : null;
+  if (recipientIds && recipientIds.some(id => !Number.isInteger(id) || id <= 0)) throw validationError('Danh sách người nhận không hợp lệ');
+  if (recipientIds && new Set(recipientIds).size !== recipientIds.length) throw validationError('Danh sách người nhận không được trùng lặp');
+
+  const status = allowStatus && payload.status ? String(payload.status).trim() : null;
+  if (status && !SURVEY_STATUSES.has(status)) throw validationError('Trạng thái khảo sát không hợp lệ');
+  return {
+    title,
+    description: String(payload.description || '').trim() || null,
+    target_product_ids: productIds,
+    start_date: startDate,
+    end_date: endDate,
+    questions: normalizedQuestions,
+    recipient_customer_ids: recipientIds,
+    status
+  };
+}
+
+async function validateSurveyReferences(payload) {
+  const productPlaceholders = payload.target_product_ids.map(() => '?').join(',');
+  const productCount = await db.prepare(`SELECT COUNT(*) AS count FROM Products WHERE id IN (${productPlaceholders})`).get(...payload.target_product_ids);
+  if (Number(productCount?.count) !== payload.target_product_ids.length) throw validationError('Một hoặc nhiều sản phẩm không tồn tại');
+  if (payload.recipient_customer_ids?.length) {
+    const recipientPlaceholders = payload.recipient_customer_ids.map(() => '?').join(',');
+    const recipientCount = await db.prepare(`
+      SELECT COUNT(*) AS count FROM Customers c JOIN Accounts a ON a.id=c.account_id
+      WHERE c.id IN (${recipientPlaceholders}) AND a.role='CUSTOMER' AND a.status='ACTIVE'
+    `).get(...payload.recipient_customer_ids);
+    if (Number(recipientCount?.count) !== payload.recipient_customer_ids.length) throw validationError('Một hoặc nhiều người nhận không tồn tại hoặc đã bị khóa');
+  }
+}
+
+function sendKnownError(res, error, fallbackPrefix) {
+  if (error.status) return res.status(error.status).json({ error: error.message });
+  return res.status(500).json({ error: fallbackPrefix ? `${fallbackPrefix}: ${error.message}` : error.message });
+}
+
+function isUniqueConstraintError(error) {
+  const code = Number(error?.number ?? error?.code);
+  return code === 2601 || code === 2627;
+}
+
+function validateDateRange(from, to) {
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  for (const [label, value] of [['Từ ngày', from], ['Đến ngày', to]]) {
+    if (value && (!datePattern.test(value) || isNaN(Date.parse(`${value}T00:00:00Z`)))) {
+      throw validationError(`${label} không hợp lệ`);
+    }
+  }
+  if (from && to && from > to) throw validationError('Từ ngày phải bằng hoặc trước đến ngày');
+}
+
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+app.get('/favicon.ico', (req, res) => res.status(204).end());
 
 // Đảm bảo CSDL được kết nối trước khi xử lý request
 let dbInitPromise = null;
@@ -111,6 +217,15 @@ async function ensureAppSchema() {
       END
     END
   `).run();
+
+  await db.prepare(`
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_Feedbacks_Customer_Product' AND object_id = OBJECT_ID('dbo.Feedbacks'))
+       AND NOT EXISTS (
+         SELECT customer_id, product_id FROM dbo.Feedbacks
+         GROUP BY customer_id, product_id HAVING COUNT(*) > 1
+       )
+    CREATE UNIQUE INDEX UX_Feedbacks_Customer_Product ON dbo.Feedbacks(customer_id, product_id)
+  `).run();
 }
 
 function buildSqlServerBackupScript(type, filename) {
@@ -125,11 +240,11 @@ function buildSqlServerRestoreScript(fullFile, diffFile) {
   return `USE master;\nALTER DATABASE ${db.databaseName} SET SINGLE_USER WITH ROLLBACK IMMEDIATE;\nRESTORE DATABASE ${db.databaseName}\nFROM DISK = N'C:\\CosmeticsCRM_Backup\\${fullFile}.bak'\nWITH NORECOVERY, REPLACE, STATS = 10;\nRESTORE DATABASE ${db.databaseName}\nFROM DISK = N'C:\\CosmeticsCRM_Backup\\${diffFile}.bak'\nWITH RECOVERY, STATS = 10;\nALTER DATABASE ${db.databaseName} SET MULTI_USER;`;
 }
 
-async function assignSurveyRecipients(surveyId, customerIds, sentBy) {
-  const ids = Array.isArray(customerIds) ? customerIds.map(Number).filter(Boolean) : [];
-  const recipients = ids.length > 0
+async function assignSurveyRecipients(surveyId, customerIds, sentBy, database = db) {
+  const ids = Array.isArray(customerIds) ? customerIds.map(Number).filter(Boolean) : null;
+  const recipients = ids !== null
     ? ids.map(id => ({ id }))
-    : await db.prepare(`
+    : await database.prepare(`
         SELECT c.id
         FROM Customers c
         JOIN Accounts a ON c.account_id = a.id
@@ -137,7 +252,7 @@ async function assignSurveyRecipients(surveyId, customerIds, sentBy) {
       `).all();
 
   for (const recipient of recipients) {
-    await db.prepare(`
+    await database.prepare(`
       IF NOT EXISTS (SELECT 1 FROM SurveyRecipients WHERE survey_id = ? AND customer_id = ?)
       INSERT INTO SurveyRecipients (survey_id, customer_id, sent_by) VALUES (?, ?, ?)
     `).run(surveyId, recipient.id, surveyId, recipient.id, sentBy);
@@ -178,16 +293,24 @@ function requireRole(...roles) {
   };
 }
 
-// Hàm kiểm tra mật khẩu dạng văn bản thuần (plain text)
 function verifyPassword(inputPassword, account) {
   if (!inputPassword || !account) return false;
   const storedPassword = account.password;
   if (!storedPassword) return false;
+  if (/^\$2[aby]\$\d{2}\$/.test(String(storedPassword))) {
+    return bcrypt.compareSync(String(inputPassword), String(storedPassword));
+  }
+  // Tương thích các tài khoản cũ đã được lưu trước khi hệ thống dùng bcrypt.
   return String(inputPassword) === String(storedPassword);
 }
 
+function isBcryptHash(value) {
+  return /^\$2[aby]\$\d{2}\$/.test(String(value || ''));
+}
+
 async function insertAccount(username, passwordVal, full_name, email, phone, role) {
-  return await db.prepare('INSERT INTO Accounts (username, password, full_name, email, phone, role) VALUES (?, ?, ?, ?, ?, ?)').run(username, passwordVal, full_name, email || null, phone || null, role);
+  const passwordHash = bcrypt.hashSync(String(passwordVal), 10);
+  return await db.prepare('INSERT INTO Accounts (username, password, full_name, email, phone, role) VALUES (?, ?, ?, ?, ?, ?)').run(username, passwordHash, full_name, email || null, phone || null, role);
 }
 
 // ========== AUTH ==========
@@ -199,6 +322,10 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Tên đăng nhập hoặc mật khẩu không đúng' });
     if (account.status === 'LOCKED')
       return res.status(403).json({ error: 'Tài khoản đã bị khóa. Vui lòng liên hệ quản trị viên.' });
+
+    if (!isBcryptHash(account.password)) {
+      await db.prepare('UPDATE Accounts SET password = ? WHERE id = ?').run(bcrypt.hashSync(String(password), 10), account.id);
+    }
 
     const token = jwt.sign({ id: account.id, username: account.username, role: account.role, full_name: account.full_name }, JWT_SECRET, { expiresIn: '24h' });
     const customer = account.role === 'CUSTOMER' ? await db.prepare('SELECT * FROM Customers WHERE account_id = ?').get(account.id) : null;
@@ -343,7 +470,13 @@ app.delete('/api/admin/accounts/:id', authMiddleware, requireRole('ADMIN'), asyn
 app.get('/api/admin/products', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
     const { search, category, supplier_id, launch_status, min_price, max_price, sort_by, sort_dir } = req.query;
-    let sql = `SELECT p.*, s.name as supplier_name FROM Products p LEFT JOIN Suppliers s ON p.supplier_id = s.id WHERE 1=1`;
+    let sql = `
+      SELECT p.*, s.name as supplier_name,
+        (SELECT COUNT(*) FROM Feedbacks f WHERE f.product_id = p.id) as review_count
+      FROM Products p 
+      LEFT JOIN Suppliers s ON p.supplier_id = s.id 
+      WHERE 1=1
+    `;
     const params = [];
     if (search) { sql += ' AND (p.name LIKE ? OR p.description LIKE ?)'; const v = `%${search}%`; params.push(v, v); }
     if (category) { sql += ' AND p.category = ?'; params.push(category); }
@@ -364,9 +497,21 @@ app.get('/api/admin/products', authMiddleware, requireRole('ADMIN', 'MANAGER'), 
 
 app.post('/api/admin/products', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
-    const { name, category, supplier_id, price, stock_quantity, description, launch_status } = req.body;
+    const { name, category, supplier_id, price, stock_quantity, stock, description, launch_status } = req.body;
     if (!name || !category) return res.status(400).json({ error: 'Thiếu thông tin bắt buộc' });
-    const result = await db.prepare('INSERT INTO Products (name, category, supplier_id, price, stock_quantity, description, launch_status) VALUES (?, ?, ?, ?, ?, ?, ?)').run(name, category, supplier_id || null, price || 0, stock_quantity || 0, description || null, launch_status || 'OFFICIAL');
+
+    // Kiểm tra ràng buộc dây chuyền: Nếu mở kinh doanh (OFFICIAL) thì Nhà cung cấp không được ở trạng thái Ngừng hợp tác (INACTIVE)
+    const targetLaunch = launch_status || 'OFFICIAL';
+    if (supplier_id && targetLaunch === 'OFFICIAL') {
+      const sup = await db.prepare('SELECT id, name, status FROM Suppliers WHERE id = ?').get(supplier_id);
+      if (sup && sup.status === 'INACTIVE') {
+        return res.status(400).json({ error: 'Không thể mở kinh doanh sản phẩm vì nhà cung cấp đang ở trạng thái Ngừng hợp tác.' });
+      }
+    }
+
+    const finalStock = stock_quantity !== undefined ? Number(stock_quantity) : (stock !== undefined ? Number(stock) : 0);
+    const result = await db.prepare('INSERT INTO Products (name, category, supplier_id, price, stock_quantity, description, launch_status) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(name, category, supplier_id || null, price || 0, finalStock, description || null, targetLaunch);
     res.status(201).json({ message: 'Thêm sản phẩm thành công', id: result.lastInsertRowid });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -375,8 +520,47 @@ app.post('/api/admin/products', authMiddleware, requireRole('ADMIN', 'MANAGER'),
 
 app.put('/api/admin/products/:id', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
-    const { name, category, supplier_id, price, stock_quantity, description, launch_status } = req.body;
-    await db.prepare('UPDATE Products SET name=?, category=?, supplier_id=?, price=?, stock_quantity=?, description=?, launch_status=? WHERE id=?').run(name, category, supplier_id || null, price, stock_quantity, description, launch_status, req.params.id);
+    const { name, category, supplier_id, price, stock_quantity, stock, description, launch_status } = req.body;
+    if (!name) return res.status(400).json({ error: 'Tên sản phẩm không được để trống' });
+
+    // Kiểm tra sản phẩm hiện tại và số lượt đánh giá
+    const current = await db.prepare(`
+      SELECT p.*, (SELECT COUNT(*) FROM Feedbacks f WHERE f.product_id = p.id) as review_count
+      FROM Products p WHERE p.id = ?
+    `).get(req.params.id);
+
+    if (!current) return res.status(404).json({ error: 'Không tìm thấy sản phẩm' });
+
+    let finalCategory = category || current.category;
+    let finalSupplierId = supplier_id !== undefined && supplier_id !== '' && supplier_id !== null ? Number(supplier_id) : current.supplier_id;
+    const targetLaunch = launch_status || current.launch_status;
+
+    if (Number(current.review_count) > 0) {
+      // ĐÃ có đánh giá: Cố định category và supplier_id để bảo toàn lịch sử thống kê CRM
+      if (category && category !== current.category) {
+        return res.status(400).json({ error: 'Sản phẩm đã có đánh giá từ khách hàng. Danh mục được cố định để bảo toàn lịch sử CRM.' });
+      }
+      if (supplier_id !== undefined && supplier_id !== null && supplier_id !== '' && Number(supplier_id) !== Number(current.supplier_id)) {
+        return res.status(400).json({ error: 'Sản phẩm đã có đánh giá từ khách hàng. Nhà cung cấp được cố định để bảo toàn lịch sử CRM.' });
+      }
+      finalCategory = current.category;
+      finalSupplierId = current.supplier_id;
+    }
+
+    // Kiểm tra ràng buộc dây chuyền: Nếu mở kinh doanh (OFFICIAL) thì Nhà cung cấp không được ở trạng thái Ngừng hợp tác
+    if (finalSupplierId && targetLaunch === 'OFFICIAL') {
+      const sup = await db.prepare('SELECT id, name, status FROM Suppliers WHERE id = ?').get(finalSupplierId);
+      if (sup && sup.status === 'INACTIVE') {
+        return res.status(400).json({ error: 'Không thể mở kinh doanh sản phẩm vì nhà cung cấp đang ở trạng thái Ngừng hợp tác.' });
+      }
+    }
+
+    const finalStock = stock_quantity !== undefined ? Number(stock_quantity) : (stock !== undefined ? Number(stock) : (current.stock_quantity || 0));
+
+    // Cho phép chuyển đổi qua lại trạng thái Đang kinh doanh <-> Ngừng kinh doanh
+    // Vẫn cho phép sửa: Tên sản phẩm, Giá bán, Trạng thái kinh doanh, Mô tả
+    await db.prepare('UPDATE Products SET name=?, category=?, supplier_id=?, price=?, stock_quantity=?, description=?, launch_status=? WHERE id=?')
+      .run(name, finalCategory, finalSupplierId, price !== undefined ? Number(price) : current.price, finalStock, description !== undefined ? description : current.description, targetLaunch, req.params.id);
     res.json({ message: 'Cập nhật sản phẩm thành công' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -385,8 +569,28 @@ app.put('/api/admin/products/:id', authMiddleware, requireRole('ADMIN', 'MANAGER
 
 app.delete('/api/admin/products/:id', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
-    await db.prepare('DELETE FROM Products WHERE id = ?').run(req.params.id);
-    res.json({ message: 'Đã xóa sản phẩm' });
+    const product = await db.prepare(`
+      SELECT p.*, (SELECT COUNT(*) FROM Feedbacks f WHERE f.product_id = p.id) as review_count
+      FROM Products p WHERE p.id = ?
+    `).get(req.params.id);
+
+    if (!product) return res.status(404).json({ error: 'Không tìm thấy sản phẩm' });
+
+    if (Number(product.review_count) > 0) {
+      // Chặn xóa cứng khi đã có đánh giá: Tự động chuyển sang trạng thái Ngừng kinh doanh (UPCOMING)
+      await db.prepare('UPDATE Products SET launch_status = ? WHERE id = ?').run('UPCOMING', req.params.id);
+      return res.json({
+        message: `Sản phẩm "${product.name}" đã có ${product.review_count} lượt đánh giá từ khách hàng. Đã tự động chuyển sang trạng thái "Ngừng kinh doanh (Đóng đánh giá)" để bảo toàn lịch sử CRM.`,
+        softDeleted: true
+      });
+    } else {
+      // Chưa có đánh giá nào: Xóa cứng khỏi Database
+      try {
+        await db.prepare('DELETE FROM SurveyProducts WHERE product_id = ?').run(req.params.id);
+      } catch (_) { }
+      await db.prepare('DELETE FROM Products WHERE id = ?').run(req.params.id);
+      return res.json({ message: `Đã xóa vĩnh viễn sản phẩm "${product.name}" khỏi cơ sở dữ liệu.`, softDeleted: false });
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -396,11 +600,26 @@ app.delete('/api/admin/products/:id', authMiddleware, requireRole('ADMIN', 'MANA
 app.get('/api/admin/suppliers', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
     const { search, status } = req.query;
-    let sql = 'SELECT * FROM Suppliers WHERE 1=1';
+    let sql = `
+      SELECT 
+        s.*,
+        (SELECT COUNT(*) FROM Products p WHERE p.supplier_id = s.id) AS product_count,
+        (SELECT COUNT(*) FROM Feedbacks f JOIN Products p ON f.product_id = p.id WHERE p.supplier_id = s.id) AS review_count,
+        (SELECT ROUND(AVG(CAST(f.rating AS FLOAT)), 1) FROM Feedbacks f JOIN Products p ON f.product_id = p.id WHERE p.supplier_id = s.id) AS avg_rating
+      FROM Suppliers s
+      WHERE 1=1
+    `;
     const params = [];
-    if (search) { sql += ' AND (name LIKE ? OR contact_name LIKE ? OR email LIKE ?)'; const v = `%${search}%`; params.push(v, v, v); }
-    if (status) { sql += ' AND status = ?'; params.push(status); }
-    sql += ' ORDER BY created_at DESC';
+    if (search) {
+      sql += ' AND (s.name LIKE ? OR s.contact_name LIKE ? OR s.email LIKE ? OR s.phone LIKE ?)';
+      const v = `%${search}%`;
+      params.push(v, v, v, v);
+    }
+    if (status) {
+      sql += ' AND s.status = ?';
+      params.push(status);
+    }
+    sql += ' ORDER BY s.created_at DESC';
     const rows = await db.prepare(sql).all(...params);
     res.json(rows);
   } catch (err) {
@@ -411,8 +630,9 @@ app.get('/api/admin/suppliers', authMiddleware, requireRole('ADMIN', 'MANAGER'),
 app.post('/api/admin/suppliers', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
     const { name, contact_name, email, phone, address, status } = req.body;
-    if (!name) return res.status(400).json({ error: 'Tên nhà cung cấp là bắt buộc' });
-    const result = await db.prepare('INSERT INTO Suppliers (name, contact_name, email, phone, address, status) VALUES (?, ?, ?, ?, ?, ?)').run(name, contact_name || null, email || null, phone || null, address || null, status || 'ACTIVE');
+    if (!name || !name.trim()) return res.status(400).json({ error: 'Tên nhà cung cấp là bắt buộc' });
+    const result = await db.prepare('INSERT INTO Suppliers (name, contact_name, email, phone, address, status) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(name.trim(), contact_name || null, email || null, phone || null, address || null, status || 'ACTIVE');
     res.status(201).json({ message: 'Thêm nhà cung cấp thành công', id: result.lastInsertRowid });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -422,7 +642,40 @@ app.post('/api/admin/suppliers', authMiddleware, requireRole('ADMIN', 'MANAGER')
 app.put('/api/admin/suppliers/:id', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
     const { name, contact_name, email, phone, address, status } = req.body;
-    await db.prepare('UPDATE Suppliers SET name=?, contact_name=?, email=?, phone=?, address=?, status=? WHERE id=?').run(name, contact_name, email, phone, address, status, req.params.id);
+
+    const currentSupplier = await db.prepare(`
+      SELECT s.*, (SELECT COUNT(*) FROM Products p WHERE p.supplier_id = s.id) AS product_count
+      FROM Suppliers s WHERE s.id = ?
+    `).get(req.params.id);
+    if (!currentSupplier) return res.status(404).json({ error: 'Không tìm thấy nhà cung cấp' });
+
+    let finalName = currentSupplier.name;
+    if (Number(currentSupplier.product_count) > 0) {
+      // Đã có sản phẩm liên kết: Cố định tên nhà cung cấp để bảo toàn lịch sử CRM
+      if (name && name.trim() !== currentSupplier.name) {
+        return res.status(400).json({ error: 'Nhà cung cấp này đã có sản phẩm liên kết. Tên nhà cung cấp được cố định để bảo toàn lịch sử CRM.' });
+      }
+      finalName = currentSupplier.name;
+    } else {
+      if (!name || !name.trim()) return res.status(400).json({ error: 'Tên nhà cung cấp là bắt buộc' });
+      finalName = name.trim();
+    }
+
+    const finalAddress = address !== undefined ? (address || null) : (currentSupplier.address || null);
+    const newStatus = status || currentSupplier.status;
+    await db.prepare('UPDATE Suppliers SET name=?, contact_name=?, email=?, phone=?, address=?, status=? WHERE id=?')
+      .run(finalName, contact_name || null, email || null, phone || null, finalAddress, newStatus, req.params.id);
+
+    // Tự động đóng đánh giá sản phẩm khi Nhà cung cấp "Ngừng hợp tác" (INACTIVE)
+    if (newStatus === 'INACTIVE') {
+      await db.prepare('UPDATE Products SET launch_status = ? WHERE supplier_id = ?').run('UPCOMING', req.params.id);
+      if (Number(currentSupplier.product_count) > 0) {
+        return res.json({
+          message: `Cập nhật thành công. Toàn bộ ${currentSupplier.product_count} sản phẩm thuộc nhà cung cấp này đã tự động chuyển sang Ngừng kinh doanh (Đóng đánh giá).`
+        });
+      }
+    }
+
     res.json({ message: 'Cập nhật nhà cung cấp thành công' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -431,8 +684,25 @@ app.put('/api/admin/suppliers/:id', authMiddleware, requireRole('ADMIN', 'MANAGE
 
 app.delete('/api/admin/suppliers/:id', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
-    await db.prepare('DELETE FROM Suppliers WHERE id = ?').run(req.params.id);
-    res.json({ message: 'Đã xóa nhà cung cấp' });
+    const supplier = await db.prepare(`
+      SELECT s.*, (SELECT COUNT(*) FROM Products p WHERE p.supplier_id = s.id) AS product_count
+      FROM Suppliers s WHERE s.id = ?
+    `).get(req.params.id);
+    if (!supplier) return res.status(404).json({ error: 'Không tìm thấy nhà cung cấp' });
+
+    if (Number(supplier.product_count) > 0) {
+      // Chặn xóa cứng khi đã có sản phẩm: Tự động chuyển sang INACTIVE và chuyển toàn bộ sản phẩm sang UPCOMING
+      await db.prepare('UPDATE Suppliers SET status = ? WHERE id = ?').run('INACTIVE', req.params.id);
+      await db.prepare('UPDATE Products SET launch_status = ? WHERE supplier_id = ?').run('UPCOMING', req.params.id);
+      return res.json({
+        message: `Nhà cung cấp "${supplier.name}" đang có ${supplier.product_count} sản phẩm liên kết. Đã tự động chuyển sang trạng thái "Ngừng hợp tác" và đóng đánh giá toàn bộ sản phẩm liên quan để bảo toàn dữ liệu CRM.`,
+        softDeleted: true
+      });
+    } else {
+      // Chưa có sản phẩm nào: Xóa cứng khỏi Database
+      await db.prepare('DELETE FROM Suppliers WHERE id = ?').run(req.params.id);
+      return res.json({ message: `Đã xóa vĩnh viễn nhà cung cấp "${supplier.name}" khỏi cơ sở dữ liệu.`, softDeleted: false });
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -515,34 +785,49 @@ app.get('/api/admin/database/backups', authMiddleware, requireRole('ADMIN'), asy
 app.get('/api/manager/analytics', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
     const { from, to } = req.query;
+    validateDateRange(from, to);
     const customerDateParams = [];
     const accountDateParams = [];
     const feedbackDateParams = [];
-    const surveyDateParams = [];
+    const surveyCampaignDateParams = [];
+    const surveyResponseDateParams = [];
+    const surveyRecipientDateParams = [];
     let customerDateWhere = '';
     let accountDateWhere = '';
     let feedbackDateWhere = '';
-    let surveyDateWhere = '';
+    let surveyCampaignDateWhere = '';
+    let surveyResponseDateWhere = '';
+    let surveyRecipientDateWhere = '';
     if (from) {
       customerDateWhere += ' AND c.created_at >= ?';
       accountDateWhere += ' AND a.created_at >= ?';
       feedbackDateWhere += ' AND f.created_at >= ?';
-      surveyDateWhere += ' AND s.created_at >= ?';
+      // Chiến dịch khảo sát được lọc theo ngày bắt đầu nghiệp vụ, không phải ngày tạo bản ghi.
+      // Dữ liệu cũ chưa có start_date dùng created_at để vẫn có thể tra cứu.
+      surveyCampaignDateWhere += ' AND COALESCE(s.start_date, CAST(s.created_at AS DATE)) >= ?';
+      surveyResponseDateWhere += ' AND sr.submitted_at >= ?';
+      surveyRecipientDateWhere += ' AND r.sent_at >= ?';
       customerDateParams.push(from);
       accountDateParams.push(from);
       feedbackDateParams.push(from);
-      surveyDateParams.push(from);
+      surveyCampaignDateParams.push(from);
+      surveyResponseDateParams.push(from);
+      surveyRecipientDateParams.push(from);
     }
     if (to) {
       const toExclusive = `${to}T23:59:59.997`;
       customerDateWhere += ' AND c.created_at <= ?';
       accountDateWhere += ' AND a.created_at <= ?';
       feedbackDateWhere += ' AND f.created_at <= ?';
-      surveyDateWhere += ' AND s.created_at <= ?';
+      surveyCampaignDateWhere += ' AND COALESCE(s.start_date, CAST(s.created_at AS DATE)) <= ?';
+      surveyResponseDateWhere += ' AND sr.submitted_at <= ?';
+      surveyRecipientDateWhere += ' AND r.sent_at <= ?';
       customerDateParams.push(toExclusive);
       accountDateParams.push(toExclusive);
       feedbackDateParams.push(toExclusive);
-      surveyDateParams.push(toExclusive);
+      surveyCampaignDateParams.push(to);
+      surveyResponseDateParams.push(toExclusive);
+      surveyRecipientDateParams.push(toExclusive);
     }
 
     const rawAgeGroups = await db.prepare(`
@@ -608,9 +893,9 @@ app.get('/api/manager/analytics', authMiddleware, requireRole('MANAGER'), async 
     const pendingFeedbacksRow = await db.prepare(`SELECT COUNT(*) as cnt FROM Feedbacks f WHERE f.status='PENDING'${feedbackDateWhere}`).get(...feedbackDateParams);
     const negativeFeedbacksRow = await db.prepare(`SELECT COUNT(*) as cnt FROM Feedbacks f WHERE f.rating <= 2${feedbackDateWhere}`).get(...feedbackDateParams);
 
-    const activeSurveysRow = await db.prepare(`SELECT COUNT(*) as cnt FROM Surveys s WHERE s.status='ACTIVE'${surveyDateWhere}`).get(...surveyDateParams);
-    const totalSurveyRespRow = await db.prepare(`SELECT COUNT(*) as cnt FROM SurveyResults sr JOIN Surveys s ON s.id = sr.survey_id WHERE 1=1${surveyDateWhere.replaceAll('s.created_at', 'sr.submitted_at')}`).get(...surveyDateParams);
-    const surveyRecipientRow = await db.prepare(`SELECT COUNT(*) as cnt FROM SurveyRecipients r JOIN Surveys s ON s.id = r.survey_id WHERE 1=1${surveyDateWhere.replaceAll('s.created_at', 'r.sent_at')}`).get(...surveyDateParams);
+    const activeSurveysRow = await db.prepare(`SELECT COUNT(*) as cnt FROM Surveys s WHERE s.status='ACTIVE'${surveyCampaignDateWhere}`).get(...surveyCampaignDateParams);
+    const totalSurveyRespRow = await db.prepare(`SELECT COUNT(*) as cnt FROM SurveyResults sr WHERE 1=1${surveyResponseDateWhere}`).get(...surveyResponseDateParams);
+    const surveyRecipientRow = await db.prepare(`SELECT COUNT(*) as cnt FROM SurveyRecipients r WHERE 1=1${surveyRecipientDateWhere}`).get(...surveyRecipientDateParams);
 
     const totalFeedbacks = totalFeedbacksRow?.cnt || 0;
     const ratingDistRows = await db.prepare(`
@@ -635,26 +920,20 @@ app.get('/api/manager/analytics', authMiddleware, requireRole('MANAGER'), async 
         SUM(CASE WHEN f.status = 'REPLIED' THEN 1 ELSE 0 END) AS replied_count,
         SUM(CASE WHEN f.status = 'PENDING' THEN 1 ELSE 0 END) AS pending_count
       FROM Products p
-      JOIN Feedbacks f ON p.id = f.product_id
-      WHERE 1=1${feedbackDateWhere}
+      LEFT JOIN Feedbacks f ON p.id = f.product_id${feedbackDateWhere}
       GROUP BY p.id, p.name
       ORDER BY average DESC, count DESC
     `).all(...feedbackDateParams);
 
     const surveyOverview = await db.prepare(`
-      SELECT s.id, s.title, s.status, s.created_at,
+      SELECT s.id, s.title, s.description, s.status, s.start_date, s.end_date, s.created_at,
+        (SELECT STRING_AGG(p2.name, N', ') FROM SurveyProducts sp2 JOIN Products p2 ON sp2.product_id = p2.id WHERE sp2.survey_id = s.id) AS product_names,
+        (SELECT COUNT(*) FROM Questions q WHERE q.survey_id = s.id) AS question_count,
         (SELECT COUNT(*) FROM SurveyRecipients r WHERE r.survey_id = s.id) AS recipients,
-        (SELECT COUNT(*) FROM SurveyResults sr WHERE sr.survey_id = s.id) AS responses,
-        (
-          SELECT ROUND(AVG(CAST(sa.answer_value AS FLOAT)), 1)
-          FROM SurveyAnswers sa
-          JOIN SurveyResults sr2 ON sr2.id = sa.survey_result_id
-          JOIN Questions q ON q.id = sa.question_id
-          WHERE sr2.survey_id = s.id AND q.question_type = 'RATING' AND ISNUMERIC(sa.answer_value) = 1
-        ) AS csat_avg
-      FROM Surveys s WHERE 1=1${surveyDateWhere}
+        (SELECT COUNT(*) FROM SurveyResults sr WHERE sr.survey_id = s.id) AS responses
+      FROM Surveys s WHERE 1=1${surveyCampaignDateWhere}
       ORDER BY s.created_at DESC
-    `).all(...surveyDateParams);
+    `).all(...surveyCampaignDateParams);
 
     const totalCustomers = totalCustRow?.cnt || 0;
     const lockedCustomers = lockedCustRow?.cnt || 0;
@@ -680,7 +959,7 @@ app.get('/api/manager/analytics', authMiddleware, requireRole('MANAGER'), async 
     });
   } catch (err) {
     console.error('Analytics error:', err);
-    res.status(500).json({ error: err.message });
+    sendKnownError(res, err);
   }
 });
 
@@ -712,6 +991,7 @@ app.get('/api/manager/products/:productId/feedbacks', authMiddleware, requireRol
 app.get('/api/manager/analytics/export', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
     const { type, from, to } = req.query;
+    validateDateRange(from, to);
     const params = [];
     let where = '';
     let headers;
@@ -740,7 +1020,7 @@ app.get('/api/manager/analytics/export', authMiddleware, requireRole('MANAGER'),
     res.setHeader('Content-Disposition', `attachment; filename="${type}-analytics.csv"`);
     res.send('\uFEFF' + csv);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res, err);
   }
 });
 
@@ -749,7 +1029,10 @@ app.get('/api/manager/customers', authMiddleware, requireRole('MANAGER'), async 
   try {
     const { search, skin_type, status } = req.query;
     let sql = `SELECT a.id, a.username, a.password, a.full_name, a.email, a.phone, a.status, a.created_at,
-      c.id as customer_id, c.age, c.gender, c.skin_type, c.beauty_preferences
+      c.id as customer_id, c.age, c.gender, c.skin_type, c.beauty_preferences,
+      (SELECT COUNT(*) FROM Feedbacks f WHERE f.customer_id = c.id) AS feedback_count,
+      (SELECT ROUND(AVG(CAST(f.rating AS FLOAT)), 1) FROM Feedbacks f WHERE f.customer_id = c.id) AS avg_rating,
+      (SELECT COUNT(*) FROM SurveyResults sr WHERE sr.customer_id = c.id) AS survey_count
       FROM Accounts a LEFT JOIN Customers c ON a.id = c.account_id
       WHERE a.role = 'CUSTOMER'`;
     const params = [];
@@ -835,17 +1118,39 @@ app.put('/api/manager/customers/:accountId/status', authMiddleware, requireRole(
 app.delete('/api/manager/customers/:accountId', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
     const accountId = Number(req.params.accountId);
-    // Xóa liên hoàn dữ liệu liên quan đến khách hàng trước
-    const cust = await db.prepare('SELECT id FROM Customers WHERE account_id = ?').get(accountId);
-    if (cust) {
-      await db.prepare('DELETE FROM SurveyAnswers WHERE survey_result_id IN (SELECT id FROM SurveyResults WHERE customer_id = ?)').run(cust.id);
-      await db.prepare('DELETE FROM SurveyResults WHERE customer_id = ?').run(cust.id);
-      await db.prepare('DELETE FROM SurveyRecipients WHERE customer_id = ?').run(cust.id);
-      await db.prepare('DELETE FROM Feedbacks WHERE customer_id = ?').run(cust.id);
-      await db.prepare('DELETE FROM Customers WHERE id = ?').run(cust.id);
+    const account = await db.prepare("SELECT id, full_name, status FROM Accounts WHERE id = ? AND role = 'CUSTOMER'").get(accountId);
+    if (!account) return res.status(404).json({ error: 'Không tìm thấy tài khoản khách hàng' });
+
+    const cust = await db.prepare(`
+      SELECT c.id,
+        (SELECT COUNT(*) FROM Feedbacks f WHERE f.customer_id = c.id) AS feedback_count,
+        (SELECT COUNT(*) FROM SurveyResults sr WHERE sr.customer_id = c.id) AS survey_count
+      FROM Customers c WHERE c.account_id = ?
+    `).get(accountId);
+
+    const feedbackCount = cust ? Number(cust.feedback_count) : 0;
+    const surveyCount = cust ? Number(cust.survey_count) : 0;
+    const hasInteractions = feedbackCount > 0 || surveyCount > 0;
+
+    if (hasInteractions) {
+      // Chặn xóa cứng (Soft Delete an toàn): Tự động chuyển trạng thái tài khoản sang LOCKED để bảo toàn lịch sử CRM
+      await db.prepare("UPDATE Accounts SET status = 'LOCKED' WHERE id = ? AND role = 'CUSTOMER'").run(accountId);
+      return res.json({
+        message: 'Khách hàng đã có dữ liệu đánh giá/khảo sát. Hệ thống đã tự động chuyển sang trạng thái Khóa tài khoản thay vì xóa vĩnh viễn để bảo toàn lịch sử thống kê CRM.',
+        softDeleted: true
+      });
+    } else {
+      // Chưa có đánh giá hay khảo sát: Cho phép xóa vĩnh viễn (Hard Delete)
+      if (cust) {
+        await db.prepare('DELETE FROM SurveyRecipients WHERE customer_id = ?').run(cust.id);
+        await db.prepare('DELETE FROM Customers WHERE id = ?').run(cust.id);
+      }
+      await db.prepare("DELETE FROM Accounts WHERE id = ? AND role = 'CUSTOMER'").run(accountId);
+      return res.json({
+        message: `Đã xóa vĩnh viễn tài khoản khách hàng "${account.full_name}" khỏi cơ sở dữ liệu.`,
+        softDeleted: false
+      });
     }
-    await db.prepare("DELETE FROM Accounts WHERE id = ? AND role = 'CUSTOMER'").run(accountId);
-    res.json({ message: 'Đã xóa khách hàng thành công' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -879,7 +1184,7 @@ app.get('/api/manager/surveys/:id', authMiddleware, requireRole('MANAGER'), asyn
     const questions = await db.prepare('SELECT * FROM Questions WHERE survey_id = ? ORDER BY order_index').all(surveyId);
     questions.forEach(q => {
       if (q.options) {
-        try { q.options = JSON.parse(q.options); } catch {}
+        try { q.options = JSON.parse(q.options); } catch { }
       }
     });
     const targetProducts = await db.prepare('SELECT product_id FROM SurveyProducts WHERE survey_id = ?').all(surveyId);
@@ -897,72 +1202,63 @@ app.get('/api/manager/surveys/:id', authMiddleware, requireRole('MANAGER'), asyn
 
 app.post('/api/manager/surveys', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
-    const { title, description, target_product_ids, start_date, end_date, questions, recipient_customer_ids } = req.body;
-    if (!title) return res.status(400).json({ error: 'Tiêu đề khảo sát là bắt buộc' });
-    if (!target_product_ids || !Array.isArray(target_product_ids) || target_product_ids.length === 0) {
-      return res.status(400).json({ error: 'Vui lòng chọn ít nhất một sản phẩm cho chiến dịch khảo sát' });
-    }
-    const surveyResult = await db.prepare('INSERT INTO Surveys (title, description, target_product_id, start_date, end_date, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)').run(title, description || null, null, start_date || null, end_date || null, 'DRAFT', req.user.id);
-    // Lưu danh sách sản phẩm vào bảng SurveyProducts
-    for (const productId of target_product_ids) {
-      await db.prepare('INSERT INTO SurveyProducts (survey_id, product_id) VALUES (?, ?)').run(surveyResult.lastInsertRowid, productId);
-    }
-    if (questions && questions.length > 0) {
-      for (let i = 0; i < questions.length; i++) {
-        const q = questions[i];
-        await db.prepare('INSERT INTO Questions (survey_id, question_text, question_type, options, order_index) VALUES (?, ?, ?, ?, ?)').run(surveyResult.lastInsertRowid, q.question_text, q.question_type, q.options ? JSON.stringify(q.options) : null, i + 1);
+    const payload = normalizeSurveyPayload(req.body);
+    await validateSurveyReferences(payload);
+    const created = await db.transaction(async tx => {
+      const surveyResult = await tx.prepare('INSERT INTO Surveys (title, description, target_product_id, start_date, end_date, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)').run(payload.title, payload.description, null, payload.start_date, payload.end_date, 'DRAFT', req.user.id);
+      for (const productId of payload.target_product_ids) {
+        await tx.prepare('INSERT INTO SurveyProducts (survey_id, product_id) VALUES (?, ?)').run(surveyResult.lastInsertRowid, productId);
       }
-    }
-    const recipientCount = await assignSurveyRecipients(surveyResult.lastInsertRowid, recipient_customer_ids, req.user.id);
-    res.status(201).json({ message: 'Tạo khảo sát thành công', id: surveyResult.lastInsertRowid, recipient_count: recipientCount });
+      for (let i = 0; i < payload.questions.length; i++) {
+        const question = payload.questions[i];
+        await tx.prepare('INSERT INTO Questions (survey_id, question_text, question_type, options, order_index) VALUES (?, ?, ?, ?, ?)').run(surveyResult.lastInsertRowid, question.question_text, question.question_type, question.options ? JSON.stringify(question.options) : null, i + 1);
+      }
+      const recipientCount = await assignSurveyRecipients(surveyResult.lastInsertRowid, payload.recipient_customer_ids, req.user.id, tx);
+      return { id: surveyResult.lastInsertRowid, recipientCount };
+    });
+    res.status(201).json({ message: 'Tạo khảo sát thành công', id: created.id, recipient_count: created.recipientCount });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res, err);
   }
 });
 
 app.put('/api/manager/surveys/:id', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
     const surveyId = Number(req.params.id);
-    const { title, description, target_product_ids, start_date, end_date, status, questions, recipient_customer_ids } = req.body;
-    if (!title) return res.status(400).json({ error: 'Tiêu đề khảo sát là bắt buộc' });
-    if (!target_product_ids || !Array.isArray(target_product_ids) || target_product_ids.length === 0) {
-      return res.status(400).json({ error: 'Vui lòng chọn ít nhất một sản phẩm' });
-    }
-
+    if (!Number.isInteger(surveyId) || surveyId <= 0) return res.status(400).json({ error: 'Mã khảo sát không hợp lệ' });
+    const payload = normalizeSurveyPayload(req.body, { allowStatus: true });
     const existing = await db.prepare('SELECT id FROM Surveys WHERE id = ?').get(surveyId);
     if (!existing) return res.status(404).json({ error: 'Không tìm thấy khảo sát' });
-
-    // Cập nhật Surveys
-    await db.prepare(`
-      UPDATE Surveys 
-      SET title = ?, description = ?, start_date = ?, end_date = ?, status = COALESCE(?, status)
-      WHERE id = ?
-    `).run(title, description || null, start_date || null, end_date || null, status || null, surveyId);
-
-    // Cập nhật SurveyProducts
-    await db.prepare('DELETE FROM SurveyProducts WHERE survey_id = ?').run(surveyId);
-    for (const pid of target_product_ids) {
-      await db.prepare('INSERT INTO SurveyProducts (survey_id, product_id) VALUES (?, ?)').run(surveyId, pid);
+    const responseCount = await db.prepare('SELECT COUNT(*) AS count FROM SurveyResults WHERE survey_id = ?').get(surveyId);
+    if (Number(responseCount?.count) > 0) {
+      const error = new Error('Không thể chỉnh sửa cấu trúc khảo sát đã có phản hồi. Bạn vẫn có thể đóng khảo sát bằng nút trạng thái.');
+      error.status = 409;
+      throw error;
     }
-
-    // Cập nhật Questions nếu có
-    if (questions && Array.isArray(questions)) {
-      await db.prepare('DELETE FROM Questions WHERE survey_id = ?').run(surveyId);
-      for (let i = 0; i < questions.length; i++) {
-        const q = questions[i];
-        await db.prepare('INSERT INTO Questions (survey_id, question_text, question_type, options, order_index) VALUES (?, ?, ?, ?, ?)').run(surveyId, q.question_text, q.question_type, q.options ? JSON.stringify(q.options) : null, i + 1);
+    await validateSurveyReferences(payload);
+    await db.transaction(async tx => {
+      await tx.prepare(`
+        UPDATE Surveys SET title = ?, description = ?, start_date = ?, end_date = ?, status = COALESCE(?, status)
+        WHERE id = ?
+      `).run(payload.title, payload.description, payload.start_date, payload.end_date, payload.status, surveyId);
+      await tx.prepare('DELETE FROM SurveyProducts WHERE survey_id = ?').run(surveyId);
+      for (const productId of payload.target_product_ids) {
+        await tx.prepare('INSERT INTO SurveyProducts (survey_id, product_id) VALUES (?, ?)').run(surveyId, productId);
       }
-    }
-
-    // Cập nhật người nhận nếu có
-    if (recipient_customer_ids && Array.isArray(recipient_customer_ids)) {
-      await db.prepare('DELETE FROM SurveyRecipients WHERE survey_id = ?').run(surveyId);
-      await assignSurveyRecipients(surveyId, recipient_customer_ids, req.user.id);
-    }
+      await tx.prepare('DELETE FROM Questions WHERE survey_id = ?').run(surveyId);
+      for (let i = 0; i < payload.questions.length; i++) {
+        const question = payload.questions[i];
+        await tx.prepare('INSERT INTO Questions (survey_id, question_text, question_type, options, order_index) VALUES (?, ?, ?, ?, ?)').run(surveyId, question.question_text, question.question_type, question.options ? JSON.stringify(question.options) : null, i + 1);
+      }
+      if (payload.recipient_customer_ids !== null) {
+        await tx.prepare('DELETE FROM SurveyRecipients WHERE survey_id = ?').run(surveyId);
+        await assignSurveyRecipients(surveyId, payload.recipient_customer_ids, req.user.id, tx);
+      }
+    });
 
     res.json({ message: 'Cập nhật khảo sát thành công' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res, err);
   }
 });
 
@@ -989,6 +1285,9 @@ app.delete('/api/manager/surveys/:id', authMiddleware, requireRole('MANAGER'), a
 app.put('/api/manager/surveys/:id/status', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
     const { status } = req.body;
+    if (!SURVEY_STATUSES.has(status)) return res.status(400).json({ error: 'Trạng thái khảo sát không hợp lệ' });
+    const existing = await db.prepare('SELECT id FROM Surveys WHERE id = ?').get(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Không tìm thấy khảo sát' });
     await db.prepare('UPDATE Surveys SET status = ? WHERE id = ?').run(status, req.params.id);
     res.json({ message: `Đã cập nhật trạng thái khảo sát thành ${status}` });
   } catch (err) {
@@ -1019,19 +1318,43 @@ app.get('/api/manager/surveys/:id/recipients', authMiddleware, requireRole('MANA
 app.put('/api/manager/surveys/:id/recipients', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
     const { customer_ids } = req.body;
-    await db.prepare('DELETE FROM SurveyRecipients WHERE survey_id = ?').run(req.params.id);
-    const recipientCount = await assignSurveyRecipients(req.params.id, customer_ids, req.user.id);
+    const survey = await db.prepare('SELECT id FROM Surveys WHERE id = ?').get(req.params.id);
+    if (!survey) return res.status(404).json({ error: 'Không tìm thấy khảo sát' });
+    if (!Array.isArray(customer_ids)) return res.status(400).json({ error: 'Danh sách người nhận không hợp lệ' });
+    const ids = customer_ids.map(Number);
+    if (ids.some(id => !Number.isInteger(id) || id <= 0) || new Set(ids).size !== ids.length) {
+      return res.status(400).json({ error: 'Danh sách người nhận chứa mã không hợp lệ hoặc trùng lặp' });
+    }
+    const responseCount = await db.prepare('SELECT COUNT(*) AS count FROM SurveyResults WHERE survey_id = ?').get(req.params.id);
+    if (Number(responseCount?.count) > 0) {
+      return res.status(409).json({ error: 'Không thể thay đổi người nhận sau khi khảo sát đã có phản hồi' });
+    }
+    if (ids.length) {
+      const placeholders = ids.map(() => '?').join(',');
+      const activeCount = await db.prepare(`SELECT COUNT(*) AS count FROM Customers c JOIN Accounts a ON a.id=c.account_id WHERE c.id IN (${placeholders}) AND a.status='ACTIVE'`).get(...ids);
+      if (Number(activeCount?.count) !== ids.length) return res.status(400).json({ error: 'Một hoặc nhiều người nhận không tồn tại hoặc đã bị khóa' });
+    }
+    const recipientCount = await db.transaction(async tx => {
+      await tx.prepare('DELETE FROM SurveyRecipients WHERE survey_id = ?').run(req.params.id);
+      return assignSurveyRecipients(req.params.id, ids, req.user.id, tx);
+    });
     res.json({ message: 'Đã cập nhật danh sách người nhận khảo sát', recipient_count: recipientCount });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res, err);
   }
 });
 
 // ========== MANAGER: Gửi (kích hoạt) khảo sát đến người nhận ==========
 app.post('/api/manager/surveys/:id/send', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
-    const survey = await db.prepare('SELECT id, status FROM Surveys WHERE id = ?').get(req.params.id);
+    const survey = await db.prepare('SELECT id, status, end_date FROM Surveys WHERE id = ?').get(req.params.id);
     if (!survey) return res.status(404).json({ error: 'Không tìm thấy khảo sát' });
+    if (survey.status === 'CLOSED') return res.status(409).json({ error: 'Không thể gửi lại khảo sát đã đóng' });
+    if (survey.end_date && new Date(survey.end_date) < new Date(new Date().toDateString())) {
+      return res.status(400).json({ error: 'Không thể gửi khảo sát đã quá ngày kết thúc' });
+    }
+    const questionCount = await db.prepare('SELECT COUNT(*) as cnt FROM Questions WHERE survey_id = ?').get(req.params.id);
+    if (!Number(questionCount?.cnt)) return res.status(400).json({ error: 'Khảo sát phải có ít nhất một câu hỏi trước khi gửi' });
 
     const countRow = await db.prepare('SELECT COUNT(*) as cnt FROM SurveyRecipients WHERE survey_id = ?').get(req.params.id);
     const recipientCount = countRow?.cnt || 0;
@@ -1356,8 +1679,12 @@ app.get('/api/manager/feedbacks', authMiddleware, requireRole('MANAGER'), async 
 
 app.put('/api/manager/feedbacks/:id/reply', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
-    const { reply_content } = req.body;
-    await db.prepare("UPDATE Feedbacks SET reply_content = ?, status = 'REPLIED' WHERE id = ?").run(reply_content, req.params.id);
+    const replyContent = String(req.body.reply_content || '').trim();
+    if (!replyContent) return res.status(400).json({ error: 'Nội dung phản hồi không được để trống' });
+    if (replyContent.length > 5000) return res.status(400).json({ error: 'Nội dung phản hồi không được vượt quá 5000 ký tự' });
+    const existing = await db.prepare('SELECT id FROM Feedbacks WHERE id = ?').get(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Không tìm thấy đánh giá' });
+    await db.prepare("UPDATE Feedbacks SET reply_content = ?, status = 'REPLIED' WHERE id = ?").run(replyContent, req.params.id);
     res.json({ message: 'Đã phản hồi thành công' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1417,6 +1744,8 @@ app.get('/api/customer/surveys', authMiddleware, requireRole('CUSTOMER'), async 
       FROM Surveys s
       JOIN SurveyRecipients r ON r.survey_id = s.id AND r.customer_id = ?
       WHERE s.status = 'ACTIVE'
+        AND (s.start_date IS NULL OR s.start_date <= CAST(GETDATE() AS DATE))
+        AND (s.end_date IS NULL OR s.end_date >= CAST(GETDATE() AS DATE))
       ORDER BY r.sent_at DESC, s.created_at DESC
     `).all(customer.id, customer.id);
     res.json(surveys);
@@ -1435,6 +1764,8 @@ app.get('/api/customer/surveys/:id', authMiddleware, requireRole('CUSTOMER'), as
       FROM Surveys s
       JOIN SurveyRecipients r ON r.survey_id = s.id AND r.customer_id = ?
       WHERE s.id = ? AND s.status = 'ACTIVE'
+        AND (s.start_date IS NULL OR s.start_date <= CAST(GETDATE() AS DATE))
+        AND (s.end_date IS NULL OR s.end_date >= CAST(GETDATE() AS DATE))
     `).get(customer.id, req.params.id);
     if (!survey) return res.status(404).json({ error: 'Không tìm thấy khảo sát' });
     const questions = await db.prepare('SELECT * FROM Questions WHERE survey_id = ? ORDER BY order_index').all(req.params.id);
@@ -1447,20 +1778,89 @@ app.get('/api/customer/surveys/:id', authMiddleware, requireRole('CUSTOMER'), as
 
 app.post('/api/customer/surveys/:id/submit', authMiddleware, requireRole('CUSTOMER'), async (req, res) => {
   try {
+    const account = await db.prepare('SELECT status FROM Accounts WHERE id = ?').get(req.user.id);
+    if (account && account.status === 'LOCKED') {
+      return res.status(403).json({ error: 'Tài khoản của bạn đã bị khóa và không thể thực hiện khảo sát.' });
+    }
+
     const customer = await db.prepare('SELECT id FROM Customers WHERE account_id = ?').get(req.user.id);
     if (!customer) return res.status(400).json({ error: 'Không tìm thấy hồ sơ khách hàng' });
+    const survey = await db.prepare('SELECT id, status, start_date, end_date FROM Surveys WHERE id = ?').get(req.params.id);
+    if (!survey) return res.status(404).json({ error: 'Không tìm thấy khảo sát' });
+    if (survey.status !== 'ACTIVE') return res.status(409).json({ error: 'Khảo sát hiện không mở nhận phản hồi' });
+    const today = new Date(new Date().toDateString());
+    if (survey.start_date && new Date(survey.start_date) > today) return res.status(400).json({ error: 'Khảo sát chưa đến ngày bắt đầu' });
+    if (survey.end_date && new Date(survey.end_date) < today) return res.status(409).json({ error: 'Khảo sát đã hết hạn' });
     const recipient = await db.prepare('SELECT id FROM SurveyRecipients WHERE survey_id = ? AND customer_id = ?').get(req.params.id, customer.id);
     if (!recipient) return res.status(403).json({ error: 'Khảo sát này chưa được gửi đến tài khoản của bạn' });
     const alreadyDone = await db.prepare('SELECT id FROM SurveyResults WHERE survey_id = ? AND customer_id = ?').get(req.params.id, customer.id);
     if (alreadyDone) return res.status(409).json({ error: 'Bạn đã thực hiện khảo sát này rồi' });
-    const resultRow = await db.prepare('INSERT INTO SurveyResults (survey_id, customer_id) VALUES (?, ?)').run(req.params.id, customer.id);
     const { answers } = req.body;
-    if (answers && answers.length > 0) {
-      for (const a of answers) {
-        await db.prepare('INSERT INTO SurveyAnswers (survey_result_id, question_id, answer_value) VALUES (?, ?, ?)').run(resultRow.lastInsertRowid, a.question_id, Array.isArray(a.answer_value) ? JSON.stringify(a.answer_value) : a.answer_value);
+    if (!Array.isArray(answers) || !answers.length) return res.status(400).json({ error: 'Vui lòng trả lời ít nhất một câu hỏi' });
+    const questions = await db.prepare('SELECT id, question_type, options FROM Questions WHERE survey_id = ?').all(req.params.id);
+    const questionMap = new Map(questions.map(question => [Number(question.id), question]));
+    const normalizedAnswers = [];
+    const seenQuestionIds = new Set();
+    for (const answer of answers) {
+      const questionId = Number(answer?.question_id);
+      const question = questionMap.get(questionId);
+      if (!question) return res.status(400).json({ error: 'Câu trả lời chứa câu hỏi không thuộc khảo sát này' });
+      if (seenQuestionIds.has(questionId)) return res.status(400).json({ error: 'Mỗi câu hỏi chỉ được gửi một câu trả lời' });
+      seenQuestionIds.add(questionId);
+
+      let value = answer.answer_value;
+      let options = [];
+      if (question.options) {
+        try { options = JSON.parse(question.options); } catch { return res.status(500).json({ error: 'Cấu hình câu hỏi trong hệ thống không hợp lệ' }); }
       }
+      if (question.question_type === 'SINGLE_CHOICE') {
+        value = String(value ?? '').trim();
+        if (!options.includes(value)) return res.status(400).json({ error: 'Lựa chọn gửi lên không thuộc danh sách đáp án hợp lệ' });
+      } else if (question.question_type === 'MULTI_CHOICE') {
+        if (!Array.isArray(value) || !value.length) return res.status(400).json({ error: 'Câu hỏi nhiều lựa chọn phải có ít nhất một đáp án' });
+        value = value.map(item => String(item).trim());
+        if (new Set(value).size !== value.length || value.some(item => !options.includes(item))) {
+          return res.status(400).json({ error: 'Một hoặc nhiều lựa chọn gửi lên không hợp lệ' });
+        }
+      } else if (question.question_type === 'RATING') {
+        value = Number(value);
+        if (!Number.isInteger(value) || value < 1 || value > 5) return res.status(400).json({ error: 'Điểm khảo sát phải là số nguyên từ 1 đến 5' });
+      } else if (question.question_type === 'TEXT') {
+        value = String(value ?? '').trim();
+        if (!value) return res.status(400).json({ error: 'Câu trả lời văn bản không được chỉ chứa khoảng trắng' });
+        if (value.length > 5000) return res.status(400).json({ error: 'Câu trả lời văn bản không được vượt quá 5000 ký tự' });
+      }
+      normalizedAnswers.push({ question_id: questionId, answer_value: Array.isArray(value) ? JSON.stringify(value) : value });
     }
+
+    await db.transaction(async tx => {
+      const resultRow = await tx.prepare('INSERT INTO SurveyResults (survey_id, customer_id) VALUES (?, ?)').run(req.params.id, customer.id);
+      for (const answer of normalizedAnswers) {
+        await tx.prepare('INSERT INTO SurveyAnswers (survey_result_id, question_id, answer_value) VALUES (?, ?, ?)').run(resultRow.lastInsertRowid, answer.question_id, answer.answer_value);
+      }
+    });
     res.status(201).json({ message: 'Nộp khảo sát thành công! Cảm ơn bạn đã tham gia.' });
+  } catch (err) {
+    if (isUniqueConstraintError(err)) return res.status(409).json({ error: 'Bạn đã thực hiện khảo sát này rồi' });
+    sendKnownError(res, err);
+  }
+});
+
+// ========== CUSTOMER: Products for feedback ==========
+app.get('/api/customer/products', authMiddleware, requireRole('CUSTOMER'), async (req, res) => {
+  try {
+    const customer = await db.prepare('SELECT id FROM Customers WHERE account_id = ?').get(req.user.id);
+    const customerId = customer ? customer.id : null;
+    const products = await db.prepare(`
+      SELECT 
+        p.id, p.name, p.category, p.price, p.launch_status,
+        CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END AS already_reviewed
+      FROM Products p
+      LEFT JOIN Feedbacks f ON f.product_id = p.id AND f.customer_id = ?
+      WHERE p.launch_status = 'OFFICIAL'
+      ORDER BY p.name
+    `).all(customerId);
+    res.json(products);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1480,21 +1880,39 @@ app.get('/api/customer/feedbacks', authMiddleware, requireRole('CUSTOMER'), asyn
 
 app.post('/api/customer/feedbacks', authMiddleware, requireRole('CUSTOMER'), async (req, res) => {
   try {
+    const account = await db.prepare('SELECT status FROM Accounts WHERE id = ?').get(req.user.id);
+    if (account && account.status === 'LOCKED') {
+      return res.status(403).json({ error: 'Tài khoản của bạn đã bị khóa và không thể gửi đánh giá mới.' });
+    }
+
     const customer = await db.prepare('SELECT id FROM Customers WHERE account_id = ?').get(req.user.id);
     if (!customer) return res.status(400).json({ error: 'Không tìm thấy hồ sơ khách hàng' });
     const { product_id, rating, content } = req.body;
-    if (!product_id || !rating) return res.status(400).json({ error: 'Thiếu thông tin sản phẩm hoặc đánh giá' });
-    
+    const productId = Number(product_id);
+    const ratingValue = Number(rating);
+    if (!Number.isInteger(productId) || productId <= 0) return res.status(400).json({ error: 'Sản phẩm không hợp lệ' });
+    if (!Number.isInteger(ratingValue) || ratingValue < 1 || ratingValue > 5) return res.status(400).json({ error: 'Điểm đánh giá phải là số nguyên từ 1 đến 5' });
+    const normalizedContent = String(content || '').trim() || null;
+    if (normalizedContent && normalizedContent.length > 2000) return res.status(400).json({ error: 'Nội dung đánh giá không được vượt quá 2000 ký tự' });
+
+    // Kiểm tra trạng thái kinh doanh của sản phẩm (chỉ Đang kinh doanh - OFFICIAL mới nhận đánh giá)
+    const product = await db.prepare('SELECT id, name, launch_status FROM Products WHERE id = ?').get(productId);
+    if (!product) return res.status(404).json({ error: 'Không tìm thấy sản phẩm' });
+    if (product.launch_status !== 'OFFICIAL') {
+      return res.status(400).json({ error: 'Sản phẩm này đã ngừng kinh doanh và đóng nhận đánh giá mới.' });
+    }
+
     // Kiểm tra khách hàng đã đánh giá sản phẩm này chưa (chỉ được 1 lần)
-    const existing = await db.prepare('SELECT id FROM Feedbacks WHERE customer_id = ? AND product_id = ?').get(customer.id, product_id);
+    const existing = await db.prepare('SELECT id FROM Feedbacks WHERE customer_id = ? AND product_id = ?').get(customer.id, productId);
     if (existing) {
       return res.status(409).json({ error: 'Bạn đã đánh giá sản phẩm này rồi. Mỗi sản phẩm chỉ được gửi đánh giá 1 lần.' });
     }
 
-    await db.prepare('INSERT INTO Feedbacks (customer_id, product_id, rating, content) VALUES (?, ?, ?, ?)').run(customer.id, product_id, rating, content || null);
+    await db.prepare('INSERT INTO Feedbacks (customer_id, product_id, rating, content) VALUES (?, ?, ?, ?)').run(customer.id, productId, ratingValue, normalizedContent);
     res.status(201).json({ message: 'Gửi đánh giá thành công! Cảm ơn bạn.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    if (isUniqueConstraintError(err)) return res.status(409).json({ error: 'Bạn đã đánh giá sản phẩm này rồi. Mỗi sản phẩm chỉ được gửi đánh giá 1 lần.' });
+    sendKnownError(res, err);
   }
 });
 
@@ -1516,7 +1934,7 @@ app.get('/api/products', authMiddleware, async (req, res) => {
 // ========== SERVER START ==========
 if (!process.env.VERCEL) {
   ensureDb().then(() => {
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
       console.log('');
       console.log('╔══════════════════════════════════════════════════════════╗');
       console.log('║   🌸  HỆ THỐNG CRM - QUẢN LÝ CỬA HÀNG MỸ PHẨM  🌸    ║');
@@ -1530,6 +1948,17 @@ if (!process.env.VERCEL) {
       console.log('║   🛍️  Customer:  khach001 / customer123                 ║');
       console.log('╚══════════════════════════════════════════════════════════╝');
       console.log('');
+    });
+
+    server.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`\n❌ Cổng ${PORT} hiện đang được sử dụng bởi một tiến trình khác.`);
+        console.error(`👉 Hướng dẫn giải phóng cổng ${PORT} trong PowerShell:\n   Get-Process -Id (Get-NetTCPConnection -LocalPort ${PORT}).OwningProcess | Stop-Process -Force\n`);
+        process.exit(1);
+      } else {
+        console.error('Lỗi server:', err);
+        process.exit(1);
+      }
     });
   }).catch(err => {
     console.error('Khởi động server thất bại:', err);
