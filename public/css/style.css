@@ -2049,3 +2049,99 @@ tbody tr.row-clickable:hover {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* ============================================================
+   PAGINATION & SURVEY CONTROLS
+   ============================================================ */
+.pagination-container {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 12px 4px;
+}
+
+.pagination-info {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pagination-btn {
+  min-width: 34px;
+  height: 32px;
+  padding: 4px 10px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  border-color: var(--rose-500);
+  color: #ffffff;
+  background: rgba(244, 63, 94, 0.1);
+}
+
+.pagination-btn.active {
+  background: var(--grad-rose);
+  border-color: var(--rose-500);
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(244, 63, 94, 0.35);
+}
+
+.pagination-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.question-reorder-btn {
+  background: rgba(148, 163, 184, 0.1);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  transition: all 0.15s;
+}
+
+.question-reorder-btn:hover {
+  background: rgba(244, 63, 94, 0.15);
+  border-color: var(--rose-500);
+  color: #ffffff;
+}
+
+.req-star {
+  color: #ef4444;
+  font-weight: bold;
+  margin-left: 3px;
+}
+
+.opt-badge {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: normal;
+  margin-left: 6px;
+}
+

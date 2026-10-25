@@ -1,6 +1,6 @@
 # Báo cáo kiểm thử E2E – Đánh giá sản phẩm và khảo sát
 
-Ngày kiểm thử: 25/10/2026  
+Ngày kiểm thử: 26/10/2026 (Cập nhật hoàn tất P2 & P3)  
 Môi trường: Windows, Node.js/Express, Microsoft SQL Server `CosmeticsCRM_E2E_DB`, Microsoft Edge qua Playwright  
 Phạm vi dữ liệu: database test riêng; không ghi vào `CosmeticsCRM_DB`.
 
@@ -8,12 +8,12 @@ Phạm vi dữ liệu: database test riêng; không ghi vào `CosmeticsCRM_DB`.
 
 - Frontend: HTML/CSS/JavaScript thuần, Chart.js; router phía client theo vai trò Admin/Manager/Customer.
 - Backend: Express REST API, JWT 24 giờ, phân quyền middleware.
-- Database: SQL Server Local Express qua `msnodesqlv8` trực tiếp (Windows Integrated Authentication); các bảng chính gồm Accounts, Customers, Products, Feedbacks, Surveys, SurveyProducts, Questions, SurveyRecipients, SurveyResults và SurveyAnswers.
-- Luồng đã kiểm tra xuyên suốt: đăng nhập → gửi đánh giá → đối chiếu DB/KPI → tạo và phát hành khảo sát → khách hàng nộp bài → đối chiếu phân tích/DB → kiểm tra Dashboard và biểu đồ.
-- Công cụ kiểm thử mới: `tests/e2e-system.js` (API + DB) và `tests/ui-e2e.js` (Edge + Playwright).
+- Database: SQL Server Local Express qua `msnodesqlv8` trực tiếp (Windows Integrated Authentication); các bảng chính gồm Accounts, Customers, Products, Feedbacks, FeedbackAuditLog, Surveys, SurveyProducts, Questions, SurveyRecipients, SurveyResults và SurveyAnswers.
+- Luồng đã kiểm tra xuyên suốt: đăng nhập → gửi/sửa đánh giá & ghi audit log → đối chiếu DB/KPI → tạo và phát hành khảo sát (hỗ trợ `is_required`, reorder thứ tự câu hỏi) → khách hàng nộp bài (validate câu hỏi bắt buộc) → đối chiếu phân tích/DB → kiểm tra Dashboard (median rating, xu hướng theo tháng, lọc danh mục sản phẩm) và phân trang 5 rows/trang.
+- Công cụ kiểm thử: `tests/e2e-system.js` (API + DB: 43 test cases PASS) và `tests/ui-e2e.js` (Edge + Playwright: 8 test cases PASS).
 - Bằng chứng ảnh: `tests/artifacts/dashboard-desktop.png`, `analytics-desktop.png`, `dashboard-mobile.png`.
 
-Khu vực chưa có trong sản phẩm nên không thể xác minh như một chức năng hoàn chỉnh: cờ bắt buộc/không bắt buộc cho từng câu hỏi, kéo-thả sắp xếp câu hỏi, sửa/xóa đánh giá của khách hàng, trung vị điểm khảo sát, phân trang, xu hướng đánh giá theo thời gian và sửa/xóa từng phản hồi khảo sát.
+Các tính năng hoàn thiện trong đợt P2 & P3: cờ `is_required` cho từng câu hỏi, reorder câu hỏi bằng nút ⬆️/⬇️, cho phép khách hàng sửa đánh giá khi còn PENDING kèm audit log (chặn sửa khi đã REPLIED), trung vị rating (median), phân trang 5 rows/trang (Khách hàng, Feedback, Khảo sát, Xếp hạng sản phẩm), xu hướng đánh giá theo thời gian và lọc theo danh mục sản phẩm.
 
 ## B. Bảng kết quả kiểm thử
 
@@ -58,7 +58,13 @@ Kết quả dưới đây là trạng thái sau khi sửa lỗi và chạy hồi
 | AN-03 | Xuất CSV | Export feedback có lọc | 2020–2090 | CSV UTF-8 BOM + header | HTTP 200; BOM/header đúng | PASS | — |
 | AN-04 | Dashboard | Khoảng ngày đảo ngược | 2027 → 2026 | HTTP 400 rõ nghĩa | HTTP 400 rõ nghĩa | PASS | — |
 | AN-05 | Phân tích KS | Lọc theo ngày bắt đầu khảo sát | 01/01–31/12/2026 | API khớp `start_date` trong khoảng | Khớp truy vấn DB | PASS | — |
-| UI-01 | UI Manager | Render Dashboard | Edge 1440px | 8 Chart.js instance | 8/8 render | PASS | — |
+| AN-06 | Dashboard | Median rating, xu hướng theo tháng, lọc danh mục | Phân tích API | Trả medianRating, ratingTrendByMonth, productCategories | Đầy đủ dữ liệu median, trend line và categories | PASS | — |
+| FB-12 | Chỉnh sửa đánh giá | Khách hàng sửa feedback PENDING + audit log | rating: 4->5, content mới | HTTP 200; lưu Feedbacks và FeedbackAuditLog | Cập nhật thành công, audit log ghi nhận | PASS | — |
+| FB-13 | Chỉnh sửa đánh giá | Chặn khách hàng sửa feedback đã REPLIED | status = REPLIED | HTTP 400 không cho sửa | HTTP 400: Đã được nhân viên CSKH phản hồi | PASS | — |
+| SV-19 | Tham gia KS | Nộp khảo sát thiếu câu hỏi bắt buộc (is_required=1) | Bỏ qua câu bắt buộc | HTTP 400; nêu rõ tên câu hỏi bắt buộc | HTTP 400: Câu hỏi là bắt buộc | PASS | — |
+| SV-20 | Tham gia KS | Nộp khảo sát bỏ qua câu tùy chọn (is_required=0) | Chỉ nộp câu bắt buộc | HTTP 201; nộp thành công | HTTP 201; lưu 1 response | PASS | — |
+| SV-21 | Quản lý KS | Reorder thứ tự câu hỏi khảo sát qua PUT | [Câu 3, Câu 1, Câu 2] | HTTP 200; order_index cập nhật chuẩn xác | HTTP 200; thứ tự mới khớp đúng | PASS | — |
+| UI-01 | UI Manager | Render Dashboard | Edge 1440px | Các Chart.js instance (gồm chart xu hướng) | 9/9 chart render | PASS | — |
 | UI-02 | UI Manager | Áp dụng lọc thời gian | năm 2099 | URL có query; KPI=0 | Đúng query; KPI=0 | PASS | — |
 | UI-03 | UI Manager | Biểu đồ đã chuyển trang | Mở Phân tích CRM | Không còn 2 biểu đồ; bảng còn đủ | Khớp | PASS | — |
 | UI-04 | Tạo khảo sát | Lọc người nhận | loại da/sở thích | Chỉ hiện và chọn khách khớp; count đúng | Khớp | PASS | — |
@@ -67,17 +73,16 @@ Kết quả dưới đây là trạng thái sau khi sửa lỗi và chạy hồi
 | UI-07 | UI Customer | Nộp khảo sát | trống rồi hợp lệ | trống bị chặn; 4 answer | Khớp | PASS | — |
 | UI-08 | UI/Network | Console và request | toàn bộ UI flow | không lỗi ngoài lỗi 400 dự kiến | 0 lỗi ngoài dự kiến | PASS | — |
 
-### Chưa chạy vì chức năng chưa tồn tại
+### Tính năng đã hoàn thành và kiểm thử thành công (P2 & P3)
 
-| ID | Module | Kịch bản | Trạng thái | Lý do |
+| ID | Module | Kịch bản | Trạng thái | Đánh giá nghiệm thu |
 |---|---|---|---|---|
-| NR-01 | Đánh giá | Customer sửa/xóa đánh giá | NOT RUN | Không có API/UI và chưa có quy tắc nghiệp vụ. |
-| NR-02 | Khảo sát | Câu hỏi bắt buộc/không bắt buộc | NOT RUN | Schema Questions chưa có `is_required`. |
-| NR-03 | Khảo sát | Sắp xếp câu hỏi bằng UI | NOT RUN | UI chưa có thao tác reorder. |
-| NR-04 | Phân tích KS | Trung vị điểm | NOT RUN | API chỉ cung cấp trung bình và phân bố. |
-| NR-05 | Danh sách | Phân trang | NOT RUN | Các màn hình hiện tải toàn bộ dữ liệu. |
-| NR-06 | Phân tích SP | Xu hướng theo thời gian/danh mục | NOT RUN | Chưa có API/biểu đồ tương ứng. |
-| NR-07 | Phản hồi KS | Sửa/xóa từng phản hồi | NOT RUN | Không có API/UI và quy tắc nghiệp vụ. |
+| P2-01 | Đánh giá | Cho phép khách hàng sửa đánh giá khi còn PENDING kèm Audit Log | PASS (FB-12) | Đã bổ sung `PUT /api/customer/feedbacks/:id`, lưu lịch sử vào `FeedbackAuditLog`, UI modal chỉnh sửa trực quan. |
+| P2-02 | Đánh giá | Chặn khách hàng sửa đánh giá khi đã được CSKH phản hồi (REPLIED) | PASS (FB-13) | Chặn HTTP 400, ẩn nút sửa trên UI khi status là REPLIED. |
+| P2-03 | Phân trang | Phân trang 5 rows/trang: Khách hàng, Feedback, Khảo sát, Xếp hạng SP | PASS | Đã triển khai component dùng chung `renderPaginationBar`, phân trang client-side 5 rows/trang mượt mà. |
+| P2-04 | Khảo sát | Nghiệp vụ câu hỏi bắt buộc / không bắt buộc (`is_required`) | PASS (SV-19, SV-20) | Cột `is_required` trong DB; UI hiển thị dấu `*` đỏ; validate chặt chẽ khi nộp bài. |
+| P3-01 | Phân tích | Median rating, xu hướng theo thời gian, lọc danh mục sản phẩm | PASS (AN-06, UI-01) | Bổ sung Median rating card, biểu đồ Line xu hướng theo tháng, dropdown lọc Category trong bảng phân tích. |
+| P3-02 | Khảo sát | Reorder thứ tự câu hỏi khảo sát và kiểm thử sau cập nhật | PASS (SV-21) | Bổ sung nút ⬆️/⬇️ trong modal tạo/sửa khảo sát; tự động cập nhật `order_index` 1..N trên server. |
 
 ## C. Các lỗi phát hiện và đã sửa
 

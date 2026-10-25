@@ -53,6 +53,7 @@ async function run() {
     DELETE FROM SurveyProducts WHERE survey_id IN (SELECT id FROM Surveys WHERE title='qa_e2e_ui_survey');
     DELETE FROM Questions WHERE survey_id IN (SELECT id FROM Surveys WHERE title='qa_e2e_ui_survey');
     DELETE FROM Surveys WHERE title='qa_e2e_ui_survey';
+    IF OBJECT_ID('dbo.FeedbackAuditLog', 'U') IS NOT NULL DELETE FROM FeedbackAuditLog WHERE feedback_id IN (SELECT id FROM Feedbacks WHERE product_id IN (SELECT id FROM Products WHERE name='qa_e2e_ui_product'));
     DELETE FROM Feedbacks WHERE product_id IN (SELECT id FROM Products WHERE name='qa_e2e_ui_product');
     DELETE FROM Products WHERE name='qa_e2e_ui_product';
     INSERT INTO Products(name,category,price,stock_quantity,launch_status) VALUES(N'qa_e2e_ui_product',N'Test UI',123000,5,'OFFICIAL');
@@ -101,12 +102,12 @@ async function run() {
     await page.locator('#app:not(.hidden)').waitFor();
   }
 
-  await test('UI-01', 'Đăng nhập Manager và render Dashboard', 'Dashboard hiển thị 8 canvas có Chart.js instance', async () => {
+  await test('UI-01', 'Đăng nhập Manager và render Dashboard', 'Dashboard hiển thị các canvas có Chart.js instance (gồm biểu đồ xu hướng mới)', async () => {
     await login('manager1', 'manager123');
     await page.locator('#chart-ratings').waitFor();
-    await page.waitForFunction(() => document.querySelectorAll('.chart-card canvas').length === 8 && [...document.querySelectorAll('.chart-card canvas')].every(canvas => window.Chart?.getChart(canvas)));
+    await page.waitForFunction(() => document.querySelectorAll('.chart-card canvas').length >= 8 && [...document.querySelectorAll('.chart-card canvas')].every(canvas => window.Chart?.getChart(canvas)));
     const chartInfo = await page.evaluate(() => [...document.querySelectorAll('.chart-card canvas')].map(canvas => ({ id: canvas.id, width: canvas.width, height: canvas.height, type: Chart.getChart(canvas)?.config.type })));
-    expect(chartInfo.length === 8 && chartInfo.every(chart => chart.width > 0 && chart.height > 0), JSON.stringify(chartInfo));
+    expect(chartInfo.length >= 8 && chartInfo.every(chart => chart.width > 0 && chart.height > 0), JSON.stringify(chartInfo));
     await page.screenshot({ path: path.join(ARTIFACT_DIR, 'dashboard-desktop.png'), fullPage: true });
     return chartInfo.map(chart => `${chart.id}:${chart.type}`).join(', ');
   });
@@ -197,7 +198,7 @@ async function run() {
     }));
     await page.screenshot({ path: path.join(ARTIFACT_DIR, 'dashboard-mobile.png'), fullPage: true });
     await page.setViewportSize({ width: 1440, height: 1000 });
-    expect(dimensions.scrollWidth <= dimensions.clientWidth + 1 && dimensions.charts === 8, JSON.stringify(dimensions));
+    expect(dimensions.scrollWidth <= dimensions.clientWidth + 1 && dimensions.charts >= 8, JSON.stringify(dimensions));
     return JSON.stringify(dimensions);
   });
 

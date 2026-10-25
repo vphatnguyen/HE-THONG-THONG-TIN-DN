@@ -76,6 +76,10 @@ async function setup() {
     DELETE FROM SurveyProducts WHERE survey_id IN (SELECT id FROM Surveys WHERE title LIKE '${QA_PREFIX}%');
     DELETE FROM Questions WHERE survey_id IN (SELECT id FROM Surveys WHERE title LIKE '${QA_PREFIX}%');
     DELETE FROM Surveys WHERE title LIKE '${QA_PREFIX}%';
+    IF OBJECT_ID('dbo.FeedbackAuditLog', 'U') IS NOT NULL
+    DELETE FROM FeedbackAuditLog WHERE feedback_id IN (
+      SELECT f.id FROM Feedbacks f JOIN Customers c ON f.customer_id = c.id JOIN Accounts a ON a.id = c.account_id WHERE a.username LIKE '${QA_PREFIX}%'
+    );
     DELETE FROM Feedbacks WHERE customer_id IN (
       SELECT c.id FROM Customers c JOIN Accounts a ON a.id = c.account_id WHERE a.username LIKE '${QA_PREFIX}%'
     );
@@ -221,6 +225,39 @@ async function run() {
     const row = (await query('SELECT status,reply_content FROM Feedbacks WHERE id=@id', { id: feedback.id })).recordset[0];
     expect(empty.status === 400 && valid.status === 200 && row.status === 'REPLIED' && row.reply_content === 'Cảm ơn phản hồi', `empty=${empty.status}; valid=${valid.status}; row=${JSON.stringify(row)}`);
     return 'HTTP 400 / HTTP 200; status=REPLIED';
+  });
+
+  await test('FB-12', 'Chỉnh sửa đánh giá', 'Khách hàng sửa đánh giá khi còn PENDING kèm ghi Audit Log', 'HTTP 200; cập nhật rating/content và lưu FeedbackAuditLog', 'P1', async () => {
+    const extra = await query(`INSERT INTO Products(name,category,price,launch_status) OUTPUT INSERTED.id VALUES(N'${QA_PREFIX}fb-edit-test',N'Test',1,'OFFICIAL')`);
+    const testProdId = extra.recordset[0].id;
+    const postRes = await api('POST', '/api/customer/feedbacks', customerBToken, { product_id: testProdId, rating: 4, content: 'Đánh giá ban đầu' });
+    expect(postRes.status === 201, `Create feedback HTTP ${postRes.status}`);
+
+    const fbRow = (await query('SELECT id FROM Feedbacks WHERE customer_id=@customer AND product_id=@product', { customer: customerBId, product: testProdId })).recordset[0];
+    const updateRes = await api('PUT', `/api/customer/feedbacks/${fbRow.id}`, customerBToken, { rating: 5, content: 'Đã sửa sau khi dùng thêm 1 tuần' });
+    expect(updateRes.status === 200, `Update feedback HTTP ${updateRes.status}: ${JSON.stringify(updateRes.data)}`);
+
+    const updatedRow = (await query('SELECT rating, content, status FROM Feedbacks WHERE id=@id', { id: fbRow.id })).recordset[0];
+    expect(Number(updatedRow.rating) === 5 && updatedRow.content === 'Đã sửa sau khi dùng thêm 1 tuần', `Row=${JSON.stringify(updatedRow)}`);
+
+    const auditRows = (await query('SELECT * FROM FeedbackAuditLog WHERE feedback_id=@id ORDER BY id DESC', { id: fbRow.id })).recordset;
+    expect(auditRows.length >= 1, `Audit count=${auditRows.length}`);
+    const latestAudit = auditRows[0];
+    expect(Number(latestAudit.old_rating) === 4 && Number(latestAudit.new_rating) === 5, `Audit=${JSON.stringify(latestAudit)}`);
+
+    const auditApiRes = await api('GET', `/api/customer/feedbacks/${fbRow.id}/audit-logs`, customerBToken);
+    expect(auditApiRes.status === 200 && Array.isArray(auditApiRes.data) && auditApiRes.data.length >= 1, `Audit API status=${auditApiRes.status}`);
+    return `HTTP 200; rating 4->5; audit log ID=${latestAudit.id}`;
+  });
+
+  await test('FB-13', 'Chỉnh sửa đánh giá', 'Chặn khách hàng sửa đánh giá khi đã được CSKH phản hồi (REPLIED)', 'HTTP 400; không cho sửa', 'P1', async () => {
+    const feedback = (await query('SELECT id FROM Feedbacks WHERE customer_id=@customer AND product_id=@product', { customer: customerAId, product: productId })).recordset[0];
+    const editRes = await api('PUT', `/api/customer/feedbacks/${feedback.id}`, customerAToken, { rating: 1, content: 'Cố tình sửa sau khi đã được CSKH phản hồi' });
+    expect(editRes.status === 400 && (editRes.data?.error?.includes('CSKH') || editRes.data?.error?.includes('chăm sóc khách hàng')), `HTTP ${editRes.status}; error=${editRes.data?.error}`);
+
+    const afterRow = (await query('SELECT rating, status FROM Feedbacks WHERE id=@id', { id: feedback.id })).recordset[0];
+    expect(Number(afterRow.rating) === 5 && afterRow.status === 'REPLIED', `Row=${JSON.stringify(afterRow)}`);
+    return `HTTP 400: ${editRes.data?.error}`;
   });
 
   await test('AUTH-03', 'Xác thực', 'Tài khoản bị khóa đăng nhập', 'HTTP 403', 'P0', async () => {
@@ -423,6 +460,86 @@ async function run() {
     return `HTTP 409; recipients=${after}`;
   });
 
+  await test('SV-19', 'Tham gia khảo sát', 'Nộp khảo sát thiếu câu hỏi bắt buộc (is_required = 1)', 'HTTP 400; thông báo lỗi chỉ rõ câu hỏi bắt buộc', 'P1', async () => {
+    const createRes = await api('POST', '/api/manager/surveys', managerToken, {
+      title: `${QA_PREFIX}required-survey`,
+      target_product_ids: [productId],
+      recipient_customer_ids: [customerBId],
+      questions: [
+        { question_text: 'Câu 1 bắt buộc', question_type: 'TEXT', is_required: true },
+        { question_text: 'Câu 2 tùy chọn', question_type: 'TEXT', is_required: false }
+      ]
+    });
+    expect(createRes.status === 201, `Create survey HTTP ${createRes.status}`);
+    const sId = createRes.data.id;
+    await api('PUT', `/api/manager/surveys/${sId}/status`, managerToken, { status: 'ACTIVE' });
+
+    const surveyData = (await api('GET', `/api/customer/surveys/${sId}`, customerBToken)).data;
+    const qOptional = surveyData.questions.find(q => q.question_text === 'Câu 2 tùy chọn');
+
+    const submitRes = await api('POST', `/api/customer/surveys/${sId}/submit`, customerBToken, {
+      answers: [
+        { question_id: qOptional.id, answer_value: 'Nội dung tùy chọn' }
+      ]
+    });
+    expect(submitRes.status === 400 && submitRes.data?.error?.includes('bắt buộc'), `HTTP ${submitRes.status}; error=${submitRes.data?.error}`);
+    return `HTTP 400: ${submitRes.data?.error}`;
+  });
+
+  await test('SV-20', 'Tham gia khảo sát', 'Nộp khảo sát bỏ qua câu hỏi không bắt buộc (is_required = 0)', 'HTTP 201; nộp thành công chỉ với câu bắt buộc', 'P1', async () => {
+    const surveyRow = (await query(`SELECT id FROM Surveys WHERE title='${QA_PREFIX}required-survey'`)).recordset[0];
+    const sId = surveyRow.id;
+    const surveyData = (await api('GET', `/api/customer/surveys/${sId}`, customerBToken)).data;
+    const qRequired = surveyData.questions.find(q => q.question_text === 'Câu 1 bắt buộc');
+
+    const submitRes = await api('POST', `/api/customer/surveys/${sId}/submit`, customerBToken, {
+      answers: [
+        { question_id: qRequired.id, answer_value: 'Nội dung trả lời câu bắt buộc' }
+      ]
+    });
+    expect(submitRes.status === 201, `HTTP ${submitRes.status}; msg=${submitRes.data?.message}`);
+
+    const count = (await query('SELECT COUNT(*) AS n FROM SurveyResults WHERE survey_id=@id AND customer_id=@customer', { id: sId, customer: customerBId })).recordset[0].n;
+    expect(count === 1, `DB Result count=${count}`);
+    return `HTTP 201; submit thành công khi bỏ qua câu hỏi không bắt buộc`;
+  });
+
+  await test('SV-21', 'Quản lý khảo sát', 'Reorder thứ tự câu hỏi qua PUT khảo sát', 'HTTP 200; thứ tự và order_index cập nhật chuẩn xác', 'P1', async () => {
+    const createRes = await api('POST', '/api/manager/surveys', managerToken, {
+      title: `${QA_PREFIX}reorder-survey`,
+      target_product_ids: [productId],
+      recipient_customer_ids: [customerAId],
+      questions: [
+        { question_text: 'Câu Thứ Nhất', question_type: 'TEXT' },
+        { question_text: 'Câu Thứ Hai', question_type: 'TEXT' },
+        { question_text: 'Câu Thứ Ba', question_type: 'TEXT' }
+      ]
+    });
+    expect(createRes.status === 201, `Create survey HTTP ${createRes.status}`);
+    const sId = createRes.data.id;
+
+    const updateRes = await api('PUT', `/api/manager/surveys/${sId}`, managerToken, {
+      title: `${QA_PREFIX}reorder-survey`,
+      target_product_ids: [productId],
+      questions: [
+        { question_text: 'Câu Thứ Ba', question_type: 'TEXT' },
+        { question_text: 'Câu Thứ Nhất', question_type: 'TEXT' },
+        { question_text: 'Câu Thứ Hai', question_type: 'TEXT' }
+      ]
+    });
+    expect(updateRes.status === 200, `Update survey HTTP ${updateRes.status}`);
+
+    const getRes = await api('GET', `/api/manager/surveys/${sId}`, managerToken);
+    expect(getRes.status === 200, `Get survey HTTP ${getRes.status}`);
+    const reorderedQuestions = getRes.data.questions;
+    expect(reorderedQuestions.length === 3, `Count=${reorderedQuestions.length}`);
+    expect(reorderedQuestions[0].question_text === 'Câu Thứ Ba' && reorderedQuestions[0].order_index === 1, `Q0=${JSON.stringify(reorderedQuestions[0])}`);
+    expect(reorderedQuestions[1].question_text === 'Câu Thứ Nhất' && reorderedQuestions[1].order_index === 2, `Q1=${JSON.stringify(reorderedQuestions[1])}`);
+    expect(reorderedQuestions[2].question_text === 'Câu Thứ Hai' && reorderedQuestions[2].order_index === 3, `Q2=${JSON.stringify(reorderedQuestions[2])}`);
+
+    return `HTTP 200; thứ tự mới: [${reorderedQuestions.map(q => q.question_text).join(' -> ')}]`;
+  });
+
   await test('AN-01', 'Dashboard', 'Bộ lọc thời gian tương lai tác động KPI', 'Tổng feedback và phản hồi khảo sát bằng 0', 'P1', async () => {
     const response = await api('GET', '/api/manager/analytics?from=2099-01-01&to=2099-12-31', managerToken);
     expect(response.status === 200, `HTTP ${response.status}`);
@@ -478,6 +595,19 @@ async function run() {
     expect(response.status === 200 && JSON.stringify(actualIds) === JSON.stringify(expectedIds), `HTTP ${response.status}; API=${actualIds}; DB=${expectedIds}`);
     expect(actualIds.includes(Number(validSurveyId)), `Thiếu khảo sát hợp lệ ${validSurveyId}`);
     return `${actualIds.length} khảo sát; start_date nằm trong ${from}..${to}`;
+  });
+
+  await test('AN-06', 'Dashboard & Analytics', 'Tính median rating, xu hướng theo tháng và phân loại danh mục', 'stats.medianRating hợp lệ, ratingTrendByMonth và productCategories đầy đủ', 'P1', async () => {
+    const response = await api('GET', '/api/manager/analytics', managerToken);
+    expect(response.status === 200, `HTTP ${response.status}`);
+    const { stats, ratingTrendByMonth, productCategories, feedbackByProduct } = response.data;
+
+    expect(stats.medianRating !== undefined, `stats.medianRating undefined`);
+    expect(Array.isArray(ratingTrendByMonth), `ratingTrendByMonth is not array`);
+    expect(Array.isArray(productCategories), `productCategories is not array`);
+    expect(feedbackByProduct.some(p => p.category !== undefined), `p.category missing in feedbackByProduct`);
+
+    return `medianRating=${stats.medianRating}; trends=${ratingTrendByMonth.length} months; categories=[${productCategories.join(', ')}]`;
   });
 
   console.table(results);

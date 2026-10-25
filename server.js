@@ -59,7 +59,8 @@ function normalizeSurveyPayload(payload, { allowStatus = false } = {}) {
         throw validationError(`Các lựa chọn của câu hỏi ${index + 1} không được trùng lặp`);
       }
     }
-    return { question_text: questionText, question_type: questionType, options };
+    const isRequired = question?.is_required !== undefined ? (Boolean(question.is_required) ? 1 : 0) : 1;
+    return { question_text: questionText, question_type: questionType, options, is_required: isRequired };
   });
   const questionKeys = normalizedQuestions.map(question => question.question_text.toLocaleLowerCase('vi'));
   if (new Set(questionKeys).size !== questionKeys.length) throw validationError('Nội dung câu hỏi không được trùng lặp');
@@ -215,6 +216,40 @@ async function ensureAppSchema() {
           RETURN;
         END
       END
+    END
+  `).run();
+
+  await db.prepare(`
+    IF OBJECT_ID('dbo.FeedbackAuditLog', 'U') IS NULL
+    BEGIN
+      CREATE TABLE dbo.FeedbackAuditLog (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        feedback_id INT NOT NULL,
+        customer_id INT NOT NULL,
+        old_rating TINYINT NOT NULL,
+        new_rating TINYINT NOT NULL,
+        old_content NVARCHAR(MAX),
+        new_content NVARCHAR(MAX),
+        action NVARCHAR(20) DEFAULT 'EDIT',
+        changed_at DATETIME2 DEFAULT GETDATE(),
+        created_at DATETIME2 DEFAULT GETDATE(),
+        CONSTRAINT FK_FeedbackAuditLog_Feedbacks FOREIGN KEY (feedback_id) REFERENCES dbo.Feedbacks(id) ON DELETE CASCADE,
+        CONSTRAINT FK_FeedbackAuditLog_Customers FOREIGN KEY (customer_id) REFERENCES dbo.Customers(id)
+      );
+    END
+    ELSE
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.FeedbackAuditLog') AND name = 'changed_at')
+        ALTER TABLE dbo.FeedbackAuditLog ADD changed_at DATETIME2 DEFAULT GETDATE();
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.FeedbackAuditLog') AND name = 'created_at')
+        ALTER TABLE dbo.FeedbackAuditLog ADD created_at DATETIME2 DEFAULT GETDATE();
+    END
+  `).run();
+
+  await db.prepare(`
+    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Questions') AND name = 'is_required')
+    BEGIN
+      ALTER TABLE dbo.Questions ADD is_required BIT NOT NULL DEFAULT 1 WITH VALUES;
     END
   `).run();
 
@@ -912,7 +947,7 @@ app.get('/api/manager/analytics', authMiddleware, requireRole('MANAGER'), async 
     });
 
     const feedbackByProduct = await db.prepare(`
-      SELECT p.id AS product_id, p.name AS product_name,
+      SELECT p.id AS product_id, p.name AS product_name, p.category,
         COUNT(f.id) AS count,
         ROUND(AVG(CAST(f.rating AS FLOAT)), 1) AS average,
         SUM(CASE WHEN f.rating >= 4 THEN 1 ELSE 0 END) AS positive_count,
@@ -921,7 +956,7 @@ app.get('/api/manager/analytics', authMiddleware, requireRole('MANAGER'), async 
         SUM(CASE WHEN f.status = 'PENDING' THEN 1 ELSE 0 END) AS pending_count
       FROM Products p
       LEFT JOIN Feedbacks f ON p.id = f.product_id${feedbackDateWhere}
-      GROUP BY p.id, p.name
+      GROUP BY p.id, p.name, p.category
       ORDER BY average DESC, count DESC
     `).all(...feedbackDateParams);
 
@@ -935,6 +970,26 @@ app.get('/api/manager/analytics', authMiddleware, requireRole('MANAGER'), async 
       ORDER BY s.created_at DESC
     `).all(...surveyCampaignDateParams);
 
+    const allRatingRows = await db.prepare(`SELECT f.rating FROM Feedbacks f WHERE 1=1${feedbackDateWhere}`).all(...feedbackDateParams);
+    const allRatings = allRatingRows.map(r => Number(r.rating)).filter(r => !isNaN(r) && r > 0).sort((a, b) => a - b);
+    let medianRating = null;
+    if (allRatings.length > 0) {
+      const mid = Math.floor(allRatings.length / 2);
+      medianRating = allRatings.length % 2 !== 0 ? allRatings[mid] : Number(((allRatings[mid - 1] + allRatings[mid]) / 2).toFixed(1));
+    }
+
+    const ratingTrendByMonth = await db.prepare(`
+      SELECT CONCAT(YEAR(f.created_at), '-', RIGHT(CONCAT('0', MONTH(f.created_at)), 2)) AS month,
+             COUNT(*) AS count,
+             ROUND(AVG(CAST(f.rating AS FLOAT)), 1) AS avg_rating
+      FROM Feedbacks f
+      WHERE 1=1${feedbackDateWhere}
+      GROUP BY YEAR(f.created_at), MONTH(f.created_at)
+      ORDER BY YEAR(f.created_at), MONTH(f.created_at)
+    `).all(...feedbackDateParams);
+
+    const productCategories = (await db.prepare('SELECT DISTINCT category FROM Products WHERE category IS NOT NULL ORDER BY category').all()).map(r => r.category);
+
     const totalCustomers = totalCustRow?.cnt || 0;
     const lockedCustomers = lockedCustRow?.cnt || 0;
     const avgRating = avgRatingRow?.avg || 0;
@@ -947,9 +1002,9 @@ app.get('/api/manager/analytics', authMiddleware, requireRole('MANAGER'), async 
 
     res.json({
       ageGroups, skinTypes, genderGroups, beautyPrefs, customerProfiles, newCustomersByMonth,
-      feedbackByProduct, surveyOverview,
+      feedbackByProduct, surveyOverview, ratingTrendByMonth, productCategories,
       stats: {
-        totalCustomers, lockedCustomers, avgRating, totalFeedbacks, repliedFeedbacks,
+        totalCustomers, lockedCustomers, avgRating, medianRating, totalFeedbacks, repliedFeedbacks,
         pendingFeedbacks, negativeFeedbacks,
         feedbackReplyRate: totalFeedbacks ? Math.round((repliedFeedbacks / totalFeedbacks) * 100) : 0,
         activeSurveys, totalSurveyResponses, surveyRecipients,
@@ -1186,6 +1241,7 @@ app.get('/api/manager/surveys/:id', authMiddleware, requireRole('MANAGER'), asyn
       if (q.options) {
         try { q.options = JSON.parse(q.options); } catch { }
       }
+      q.is_required = q.is_required !== undefined && q.is_required !== null ? Boolean(q.is_required) : true;
     });
     const targetProducts = await db.prepare('SELECT product_id FROM SurveyProducts WHERE survey_id = ?').all(surveyId);
     const recipientRows = await db.prepare('SELECT customer_id FROM SurveyRecipients WHERE survey_id = ?').all(surveyId);
@@ -1211,7 +1267,7 @@ app.post('/api/manager/surveys', authMiddleware, requireRole('MANAGER'), async (
       }
       for (let i = 0; i < payload.questions.length; i++) {
         const question = payload.questions[i];
-        await tx.prepare('INSERT INTO Questions (survey_id, question_text, question_type, options, order_index) VALUES (?, ?, ?, ?, ?)').run(surveyResult.lastInsertRowid, question.question_text, question.question_type, question.options ? JSON.stringify(question.options) : null, i + 1);
+        await tx.prepare('INSERT INTO Questions (survey_id, question_text, question_type, options, order_index, is_required) VALUES (?, ?, ?, ?, ?, ?)').run(surveyResult.lastInsertRowid, question.question_text, question.question_type, question.options ? JSON.stringify(question.options) : null, i + 1, question.is_required ?? 1);
       }
       const recipientCount = await assignSurveyRecipients(surveyResult.lastInsertRowid, payload.recipient_customer_ids, req.user.id, tx);
       return { id: surveyResult.lastInsertRowid, recipientCount };
@@ -1248,7 +1304,7 @@ app.put('/api/manager/surveys/:id', authMiddleware, requireRole('MANAGER'), asyn
       await tx.prepare('DELETE FROM Questions WHERE survey_id = ?').run(surveyId);
       for (let i = 0; i < payload.questions.length; i++) {
         const question = payload.questions[i];
-        await tx.prepare('INSERT INTO Questions (survey_id, question_text, question_type, options, order_index) VALUES (?, ?, ?, ?, ?)').run(surveyId, question.question_text, question.question_type, question.options ? JSON.stringify(question.options) : null, i + 1);
+        await tx.prepare('INSERT INTO Questions (survey_id, question_text, question_type, options, order_index, is_required) VALUES (?, ?, ?, ?, ?, ?)').run(surveyId, question.question_text, question.question_type, question.options ? JSON.stringify(question.options) : null, i + 1, question.is_required ?? 1);
       }
       if (payload.recipient_customer_ids !== null) {
         await tx.prepare('DELETE FROM SurveyRecipients WHERE survey_id = ?').run(surveyId);
@@ -1443,6 +1499,13 @@ app.get('/api/manager/surveys/:id/results', authMiddleware, requireRole('MANAGER
       if (q.question_type === 'RATING') {
         const vals = qAnswers.map(a => Number(a.answer_value)).filter(v => !isNaN(v));
         analysis.average = vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : null;
+        if (vals.length) {
+          const sorted = [...vals].sort((a, b) => a - b);
+          const mid = Math.floor(sorted.length / 2);
+          analysis.median = sorted.length % 2 !== 0 ? sorted[mid] : Number(((sorted[mid - 1] + sorted[mid]) / 2).toFixed(1));
+        } else {
+          analysis.median = null;
+        }
         // Đảo thứ tự: 5 sao -> 1 sao kèm danh sách người đánh giá (drilldown)
         analysis.distribution = [5, 4, 3, 2, 1].map(stars => {
           const reviewers = qAnswers
@@ -1591,12 +1654,20 @@ app.get('/api/manager/surveys/:id/results', authMiddleware, requireRole('MANAGER
       ? (allRatingValues.reduce((a, b) => a + b, 0) / allRatingValues.length).toFixed(1)
       : null;
 
+    let overallMedian = null;
+    if (allRatingValues.length) {
+      const sortedRatings = [...allRatingValues].sort((a, b) => a - b);
+      const mid = Math.floor(sortedRatings.length / 2);
+      overallMedian = sortedRatings.length % 2 !== 0 ? sortedRatings[mid] : Number(((sortedRatings[mid - 1] + sortedRatings[mid]) / 2).toFixed(1));
+    }
+
     const stats = {
       recipients_count: recipients.length,
       respondents_count: respondents.length,
       pending_count: Math.max(0, recipients.length - respondents.length),
       response_rate: recipients.length ? Math.round((respondents.length / recipients.length) * 100) : 0,
-      overall_avg_rating: overallAvg
+      overall_avg_rating: overallAvg,
+      overall_median_rating: overallMedian
     };
 
     res.json({
@@ -1769,7 +1840,10 @@ app.get('/api/customer/surveys/:id', authMiddleware, requireRole('CUSTOMER'), as
     `).get(customer.id, req.params.id);
     if (!survey) return res.status(404).json({ error: 'Không tìm thấy khảo sát' });
     const questions = await db.prepare('SELECT * FROM Questions WHERE survey_id = ? ORDER BY order_index').all(req.params.id);
-    questions.forEach(q => { if (q.options) try { q.options = JSON.parse(q.options); } catch { } });
+    questions.forEach(q => {
+      if (q.options) try { q.options = JSON.parse(q.options); } catch { }
+      q.is_required = q.is_required !== undefined && q.is_required !== null ? Boolean(q.is_required) : true;
+    });
     res.json({ survey, questions });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1797,7 +1871,19 @@ app.post('/api/customer/surveys/:id/submit', authMiddleware, requireRole('CUSTOM
     if (alreadyDone) return res.status(409).json({ error: 'Bạn đã thực hiện khảo sát này rồi' });
     const { answers } = req.body;
     if (!Array.isArray(answers) || !answers.length) return res.status(400).json({ error: 'Vui lòng trả lời ít nhất một câu hỏi' });
-    const questions = await db.prepare('SELECT id, question_type, options FROM Questions WHERE survey_id = ?').all(req.params.id);
+    const questions = await db.prepare('SELECT id, question_text, question_type, options, is_required FROM Questions WHERE survey_id = ?').all(req.params.id);
+
+    const answeredQuestionIds = new Set(
+      answers
+        .filter(a => a && a.answer_value !== null && a.answer_value !== undefined && (Array.isArray(a.answer_value) ? a.answer_value.length > 0 : String(a.answer_value).trim() !== ''))
+        .map(a => Number(a.question_id))
+    );
+    for (const q of questions) {
+      const isReq = q.is_required === undefined || q.is_required === null || Boolean(q.is_required);
+      if (isReq && !answeredQuestionIds.has(Number(q.id))) {
+        return res.status(400).json({ error: `Câu hỏi "${q.question_text}" là bắt buộc, vui lòng trả lời.` });
+      }
+    }
     const questionMap = new Map(questions.map(question => [Number(question.id), question]));
     const normalizedAnswers = [];
     const seenQuestionIds = new Set();
@@ -1912,6 +1998,84 @@ app.post('/api/customer/feedbacks', authMiddleware, requireRole('CUSTOMER'), asy
     res.status(201).json({ message: 'Gửi đánh giá thành công! Cảm ơn bạn.' });
   } catch (err) {
     if (isUniqueConstraintError(err)) return res.status(409).json({ error: 'Bạn đã đánh giá sản phẩm này rồi. Mỗi sản phẩm chỉ được gửi đánh giá 1 lần.' });
+    sendKnownError(res, err);
+  }
+});
+
+app.put('/api/customer/feedbacks/:id', authMiddleware, requireRole('CUSTOMER'), async (req, res) => {
+  try {
+    const feedbackId = Number(req.params.id);
+    if (!Number.isInteger(feedbackId) || feedbackId <= 0) {
+      return res.status(400).json({ error: 'Mã đánh giá không hợp lệ' });
+    }
+
+    const account = await db.prepare('SELECT status FROM Accounts WHERE id = ?').get(req.user.id);
+    if (account && account.status === 'LOCKED') {
+      return res.status(403).json({ error: 'Tài khoản của bạn đã bị khóa và không thể chỉnh sửa đánh giá.' });
+    }
+
+    const customer = await db.prepare('SELECT id FROM Customers WHERE account_id = ?').get(req.user.id);
+    if (!customer) return res.status(400).json({ error: 'Không tìm thấy hồ sơ khách hàng' });
+
+    const existing = await db.prepare('SELECT * FROM Feedbacks WHERE id = ? AND customer_id = ?').get(feedbackId, customer.id);
+    if (!existing) {
+      return res.status(404).json({ error: 'Không tìm thấy đánh giá hoặc bạn không có quyền sửa đánh giá này' });
+    }
+
+    if (existing.status === 'REPLIED') {
+      return res.status(400).json({ error: 'Đánh giá đã được nhân viên chăm sóc khách hàng phản hồi, không thể chỉnh sửa.' });
+    }
+
+    const { rating, content } = req.body;
+    const ratingValue = Number(rating);
+    if (!Number.isInteger(ratingValue) || ratingValue < 1 || ratingValue > 5) {
+      return res.status(400).json({ error: 'Điểm đánh giá phải là số nguyên từ 1 đến 5' });
+    }
+    const normalizedContent = String(content || '').trim() || null;
+    if (normalizedContent && normalizedContent.length > 2000) {
+      return res.status(400).json({ error: 'Nội dung đánh giá không được vượt quá 2000 ký tự' });
+    }
+
+    await db.transaction(async tx => {
+      await tx.prepare(`
+        INSERT INTO FeedbackAuditLog (feedback_id, customer_id, old_rating, new_rating, old_content, new_content, action)
+        VALUES (?, ?, ?, ?, ?, ?, 'EDIT')
+      `).run(feedbackId, customer.id, existing.rating, ratingValue, existing.content, normalizedContent);
+
+      await tx.prepare('UPDATE Feedbacks SET rating = ?, content = ? WHERE id = ?').run(ratingValue, normalizedContent, feedbackId);
+    });
+
+    res.json({ message: 'Cập nhật đánh giá thành công!' });
+  } catch (err) {
+    sendKnownError(res, err);
+  }
+});
+
+app.get('/api/customer/feedbacks/:id/audit-logs', authMiddleware, requireRole('CUSTOMER'), async (req, res) => {
+  try {
+    const feedbackId = Number(req.params.id);
+    const customer = await db.prepare('SELECT id FROM Customers WHERE account_id = ?').get(req.user.id);
+    if (!customer) return res.status(400).json({ error: 'Không tìm thấy hồ sơ khách hàng' });
+    const logs = await db.prepare('SELECT *, COALESCE(changed_at, created_at) AS changed_at FROM FeedbackAuditLog WHERE feedback_id = ? AND customer_id = ? ORDER BY id DESC').all(feedbackId, customer.id);
+    res.json(logs);
+  } catch (err) {
+    sendKnownError(res, err);
+  }
+});
+
+app.get('/api/manager/feedbacks/:id/audit-logs', authMiddleware, requireRole('MANAGER'), async (req, res) => {
+  try {
+    const feedbackId = Number(req.params.id);
+    const logs = await db.prepare(`
+      SELECT fal.*, COALESCE(fal.changed_at, fal.created_at) AS changed_at, a.full_name as customer_name
+      FROM FeedbackAuditLog fal
+      JOIN Customers c ON fal.customer_id = c.id
+      JOIN Accounts a ON c.account_id = a.id
+      WHERE fal.feedback_id = ?
+      ORDER BY fal.id DESC
+    `).all(feedbackId);
+    res.json(logs);
+  } catch (err) {
     sendKnownError(res, err);
   }
 });

@@ -120,43 +120,59 @@ async function renderCustomerHome() {
 }
 
 // ========== CUSTOMER: SURVEYS ==========
+let customerSurveyCurrentPage = 1;
+const CUSTOMER_SURVEY_PAGE_SIZE = 5;
+let currentCustomerSurveys = [];
+
 async function renderCustomerSurveys() {
   setPageHeader('📋 Bài khảo sát của tôi', 'Tham gia khảo sát để giúp chúng tôi cải thiện sản phẩm');
   showLoading();
   try {
     const surveys = await api('GET', '/api/customer/surveys');
-    const html = `
-      <div class="survey-list">
-        ${surveys.length === 0 ? `
-          <div class="page-empty">
-            <div class="empty-icon">📋</div>
-            <p>Hiện không có khảo sát nào đang mở</p>
-          </div>
-        ` : surveys.map(s => `
-          <div class="survey-card">
-            <div class="survey-icon">${s.already_submitted > 0 ? '✅' : '📋'}</div>
-            <div class="survey-info">
-              <div class="survey-title">${s.title}</div>
-              <div class="survey-meta">
-                ${surveyStatusBadge(s.status)}
-                ${s.product_names ? `&nbsp;· 📦 ${s.product_names}` : ''}
-                &nbsp;· 📝 ${s.question_count} câu hỏi
-                ${s.end_date ? `&nbsp;· 🕐 Hạn: ${formatDate(s.end_date)}` : ''}
-              </div>
-              ${s.description ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px">${s.description}</div>` : ''}
-            </div>
-            <div class="survey-actions">
-              ${s.already_submitted > 0
-        ? `<span class="badge badge-active">✅ Đã hoàn thành</span>`
-        : `<button class="btn btn-primary btn-sm" onclick="startSurvey(${s.id})">▶️ Làm khảo sát</button>`
-      }
-            </div>
-          </div>
-        `).join('')}
-      </div>
-    `;
-    setPageContent(html);
+    currentCustomerSurveys = surveys || [];
+    customerSurveyCurrentPage = 1;
+    renderCustomerSurveysPage(1);
   } catch (e) { toast(e.message, 'error'); }
+}
+
+function renderCustomerSurveysPage(page) {
+  customerSurveyCurrentPage = page;
+  const total = currentCustomerSurveys.length;
+  const start = (page - 1) * CUSTOMER_SURVEY_PAGE_SIZE;
+  const pageItems = currentCustomerSurveys.slice(start, start + CUSTOMER_SURVEY_PAGE_SIZE);
+
+  const html = `
+    <div class="survey-list">
+      ${total === 0 ? `
+        <div class="page-empty">
+          <div class="empty-icon">📋</div>
+          <p>Hiện không có khảo sát nào đang mở</p>
+        </div>
+      ` : pageItems.map(s => `
+        <div class="survey-card">
+          <div class="survey-icon">${s.already_submitted > 0 ? '✅' : '📋'}</div>
+          <div class="survey-info">
+            <div class="survey-title">${s.title}</div>
+            <div class="survey-meta">
+              ${surveyStatusBadge(s.status)}
+              ${s.product_names ? `&nbsp;· 📦 ${s.product_names}` : ''}
+              &nbsp;· 📝 ${s.question_count} câu hỏi
+              ${s.end_date ? `&nbsp;· 🕐 Hạn: ${formatDate(s.end_date)}` : ''}
+            </div>
+            ${s.description ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px">${s.description}</div>` : ''}
+          </div>
+          <div class="survey-actions">
+            ${s.already_submitted > 0
+              ? `<span class="badge badge-active">✅ Đã hoàn thành</span>`
+              : `<button class="btn btn-primary btn-sm" onclick="startSurvey(${s.id})">▶️ Làm khảo sát</button>`
+            }
+          </div>
+        </div>
+      `).join('')}
+    </div>
+    ${renderPaginationBar({ totalItems: total, pageSize: CUSTOMER_SURVEY_PAGE_SIZE, currentPage: page, onPageChangeFnName: 'renderCustomerSurveysPage' })}
+  `;
+  setPageContent(html);
 }
 
 async function startSurvey(id) {
@@ -177,8 +193,10 @@ async function startSurvey(id) {
 
     questions.forEach((q, i) => {
       const cleanedQText = (q.question_text || '').trim().replace(/^((câu\s*\d+[\.:\s]*|\d+[\.\):\s]+)+)/i, '').trim();
+      const isReq = q.is_required !== false;
+      const reqBadge = isReq ? `<span class="req-star" title="Bắt buộc trả lời">*</span>` : `<span class="opt-badge">(Không bắt buộc)</span>`;
       body += `<div style="background:var(--bg-card-solid);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:12px;line-height:1.5">${i + 1}. ${escapeHtml(cleanedQText)}</div>`;
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px;line-height:1.5">${i + 1}. ${escapeHtml(cleanedQText)} ${reqBadge}</div>`;
 
       if (q.question_type === 'SINGLE_CHOICE' && Array.isArray(q.options)) {
         body += `<div style="display:flex;flex-direction:column;gap:8px">`;
@@ -322,46 +340,157 @@ async function submitSurvey(surveyId) {
 }
 
 // ========== CUSTOMER: FEEDBACK ==========
+let customerFeedbackCurrentPage = 1;
+const CUSTOMER_FEEDBACK_PAGE_SIZE = 5;
+let currentCustomerFeedbacks = [];
+
 async function renderCustomerFeedback() {
   setPageHeader('💬 Phản hồi của tôi', 'Quản lý đánh giá sản phẩm bạn đã gửi',
     `<button class="btn btn-primary" onclick="openNewFeedbackModal()">➕ Gửi đánh giá mới</button>`);
   showLoading();
   try {
     const feedbacks = await api('GET', '/api/customer/feedbacks');
-    const html = `
-      <div class="feedback-list">
-        ${feedbacks.length === 0 ? `
-          <div class="page-empty">
-            <div class="empty-icon">💬</div>
-            <p>Bạn chưa gửi đánh giá nào.<br><a href="#" onclick="openNewFeedbackModal()">Gửi đánh giá ngay!</a></p>
-          </div>
-        ` : feedbacks.map(f => `
+    currentCustomerFeedbacks = feedbacks || [];
+    customerFeedbackCurrentPage = 1;
+    renderCustomerFeedbackPage(1);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function renderCustomerFeedbackPage(page) {
+  customerFeedbackCurrentPage = page;
+  const total = currentCustomerFeedbacks.length;
+  const start = (page - 1) * CUSTOMER_FEEDBACK_PAGE_SIZE;
+  const pageItems = currentCustomerFeedbacks.slice(start, start + CUSTOMER_FEEDBACK_PAGE_SIZE);
+
+  const html = `
+    <div class="feedback-list">
+      ${total === 0 ? `
+        <div class="page-empty">
+          <div class="empty-icon">💬</div>
+          <p>Bạn chưa gửi đánh giá nào.<br><a href="#" onclick="openNewFeedbackModal()">Gửi đánh giá ngay!</a></p>
+        </div>
+      ` : pageItems.map(f => {
+        const canEdit = f.status !== 'REPLIED';
+        return `
           <div class="feedback-card">
             <div class="feedback-header">
               <div class="feedback-meta">
-                <div class="feedback-customer">💄 ${f.product_name}</div>
+                <div class="feedback-customer">💄 ${escapeHtml(f.product_name)}</div>
                 <div class="feedback-product" style="font-size:11px;color:var(--text-muted)">${formatDateTime(f.created_at)}</div>
               </div>
               <div style="display:flex;align-items:center;gap:8px">
                 <div class="stars" style="color:#fbbf24">${renderStars(f.rating)}</div>
                 ${f.status === 'REPLIED'
-        ? `<span class="badge badge-replied">✅ Đã được phản hồi</span>`
-        : `<span class="badge badge-pending">🕐 Chờ phản hồi</span>`}
+                  ? `<span class="badge badge-replied">✅ Đã được phản hồi</span>`
+                  : `<span class="badge badge-pending">🕐 Chờ phản hồi</span>
+                     <button class="btn btn-secondary btn-sm" onclick="openEditFeedbackModal(${f.id}, ${f.rating}, '${escapeHtml(f.content || '').replace(/'/g, "\\'")}', '${escapeHtml(f.product_name).replace(/'/g, "\\'")}')" style="margin-left:4px;font-size:11px;padding:3px 8px" title="Chỉnh sửa đánh giá khi chưa được phản hồi">✏️ Sửa</button>`
+                }
               </div>
             </div>
-            <p class="feedback-content">${f.content || '(Không có nội dung)'}</p>
+            <p class="feedback-content">${escapeHtml(f.content || '(Không có nội dung)')}</p>
             ${f.reply_content ? `
               <div class="feedback-reply">
                 <div class="feedback-reply-label">💌 Phản hồi từ BeautyCRM:</div>
-                <div class="feedback-reply-text">${f.reply_content}</div>
+                <div class="feedback-reply-text">${escapeHtml(f.reply_content)}</div>
               </div>
             ` : ''}
           </div>
-        `).join('')}
+        `;
+      }).join('')}
+    </div>
+    ${renderPaginationBar({ totalItems: total, pageSize: CUSTOMER_FEEDBACK_PAGE_SIZE, currentPage: page, onPageChangeFnName: 'renderCustomerFeedbackPage' })}
+  `;
+  setPageContent(html);
+}
+
+let editFeedbackSelectedRating = 5;
+
+function openEditFeedbackModal(feedbackId, currentRating, currentContent, productName) {
+  editFeedbackSelectedRating = currentRating || 5;
+  const modalHtml = `
+    <div style="background:rgba(244,63,94,0.06);border:1px solid rgba(244,63,94,0.15);border-radius:10px;padding:12px 16px;margin-bottom:14px">
+      <div style="font-weight:600;font-size:14px">💄 ${escapeHtml(productName)}</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Bạn có thể tùy ý sửa đánh giá khi chưa có phản hồi từ nhân viên CSKH.</div>
+    </div>
+
+    <div class="form-group">
+      <label>Điểm đánh giá *</label>
+      <div style="display:flex;align-items:center;gap:12px;padding:6px 0">
+        <div style="display:flex;gap:6px" onmouseleave="resetEditFeedbackStar()">
+          ${[1, 2, 3, 4, 5].map(n => `
+            <span id="efb-star-${n}"
+                  style="cursor:pointer;font-size:32px;color:${n <= editFeedbackSelectedRating ? '#fbbf24' : '#475569'};transition:color 0.15s;user-select:none"
+                  onmouseover="hoverEditFeedbackStar(${n})"
+                  onclick="setEditFeedbackStar(${n})">★</span>
+          `).join('')}
+        </div>
+        <span id="efb-star-text" style="font-size:13px;color:var(--rose-300);font-weight:600">
+          ${renderEditFeedbackRatingText(editFeedbackSelectedRating)}
+        </span>
       </div>
-    `;
-    setPageContent(html);
-  } catch (e) { toast(e.message, 'error'); }
+      <input type="hidden" id="efb-rating" value="${editFeedbackSelectedRating}">
+    </div>
+
+    <div class="form-group">
+      <label>Nội dung đánh giá</label>
+      <textarea id="efb-content" placeholder="Chia sẻ trải nghiệm của bạn về sản phẩm này..." style="min-height:90px">${escapeHtml(currentContent || '')}</textarea>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">Hủy</button>
+      <button class="btn btn-primary" onclick="submitEditFeedback(${feedbackId})">💾 Lưu thay đổi</button>
+    </div>
+  `;
+
+  showModal('✏️ Chỉnh sửa đánh giá', modalHtml, true);
+}
+
+function renderEditFeedbackRatingText(rating) {
+  const texts = ['', '1 sao - Rất tệ', '2 sao - Chưa hài lòng', '3 sao - Bình thường', '4 sao - Tốt', '5 sao - Tuyệt vời!'];
+  return texts[rating] || '';
+}
+
+function setEditFeedbackStar(rating) {
+  editFeedbackSelectedRating = rating;
+  const input = document.getElementById('efb-rating');
+  if (input) input.value = rating;
+  updateEditFeedbackStarsUI(rating);
+}
+
+function hoverEditFeedbackStar(val) {
+  updateEditFeedbackStarsUI(val);
+}
+
+function resetEditFeedbackStar() {
+  updateEditFeedbackStarsUI(editFeedbackSelectedRating);
+}
+
+function updateEditFeedbackStarsUI(val) {
+  for (let i = 1; i <= 5; i++) {
+    const star = document.getElementById(`efb-star-${i}`);
+    if (star) star.style.color = i <= val ? '#fbbf24' : '#475569';
+  }
+  const textEl = document.getElementById('efb-star-text');
+  if (textEl) textEl.textContent = renderEditFeedbackRatingText(val);
+}
+
+async function submitEditFeedback(feedbackId) {
+  const rating = Number(document.getElementById('efb-rating')?.value);
+  const content = document.getElementById('efb-content')?.value.trim();
+
+  if (!rating || rating < 1 || rating > 5) {
+    toast('Vui lòng chọn số sao đánh giá (1-5 sao)', 'error');
+    return;
+  }
+
+  try {
+    await api('PUT', `/api/customer/feedbacks/${feedbackId}`, { rating, content });
+    toast('Cập nhật đánh giá thành công!', 'success');
+    closeModal();
+    renderCustomerFeedback();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
 }
 
 async function openNewFeedbackModal() {

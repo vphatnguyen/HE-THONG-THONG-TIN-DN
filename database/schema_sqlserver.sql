@@ -23,6 +23,7 @@ GO
 IF OBJECT_ID('dbo.SurveyAnswers', 'U') IS NOT NULL DROP TABLE dbo.SurveyAnswers;
 IF OBJECT_ID('dbo.SurveyResults', 'U') IS NOT NULL DROP TABLE dbo.SurveyResults;
 IF OBJECT_ID('dbo.Questions', 'U') IS NOT NULL DROP TABLE dbo.Questions;
+IF OBJECT_ID('dbo.FeedbackAuditLog', 'U') IS NOT NULL DROP TABLE dbo.FeedbackAuditLog;
 IF OBJECT_ID('dbo.Feedbacks', 'U') IS NOT NULL DROP TABLE dbo.Feedbacks;
 IF OBJECT_ID('dbo.Surveys', 'U') IS NOT NULL DROP TABLE dbo.Surveys;
 IF OBJECT_ID('dbo.Products', 'U') IS NOT NULL DROP TABLE dbo.Products;
@@ -161,6 +162,7 @@ CREATE TABLE dbo.Questions (
                     CONSTRAINT CK_Questions_type CHECK (question_type IN ('SINGLE_CHOICE','MULTI_CHOICE','RATING','TEXT')),
     options         NVARCHAR(MAX), -- JSON array
     order_index     INT DEFAULT 0,
+    is_required     BIT DEFAULT 1,
     CONSTRAINT FK_Questions_Surveys FOREIGN KEY (survey_id) REFERENCES dbo.Surveys(id) ON DELETE CASCADE
 );
 GO
@@ -201,6 +203,22 @@ CREATE TABLE dbo.Feedbacks (
     created_at      DATETIME2 DEFAULT GETDATE(),
     CONSTRAINT FK_Feedbacks_Customers FOREIGN KEY (customer_id) REFERENCES dbo.Customers(id),
     CONSTRAINT FK_Feedbacks_Products FOREIGN KEY (product_id) REFERENCES dbo.Products(id)
+);
+GO
+
+-- Bảng 10: FeedbackAuditLog - Lịch sử chỉnh sửa đánh giá
+CREATE TABLE dbo.FeedbackAuditLog (
+    id              INT IDENTITY(1,1) PRIMARY KEY,
+    feedback_id     INT NOT NULL,
+    customer_id     INT NOT NULL,
+    old_rating      TINYINT NOT NULL,
+    new_rating      TINYINT NOT NULL,
+    old_content     NVARCHAR(MAX),
+    new_content     NVARCHAR(MAX),
+    action          NVARCHAR(20) DEFAULT 'EDIT',
+    changed_at      DATETIME2 DEFAULT GETDATE(),
+    CONSTRAINT FK_FeedbackAuditLog_Feedbacks FOREIGN KEY (feedback_id) REFERENCES dbo.Feedbacks(id) ON DELETE CASCADE,
+    CONSTRAINT FK_FeedbackAuditLog_Customers FOREIGN KEY (customer_id) REFERENCES dbo.Customers(id)
 );
 GO
 

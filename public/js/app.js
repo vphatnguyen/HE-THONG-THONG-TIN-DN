@@ -332,3 +332,49 @@ document.addEventListener('DOMContentLoaded', () => {
 
   tryAutoLogin();
 });
+
+// ========== SHARED PAGINATION UTILITY ==========
+function renderPaginationBar({ totalItems, pageSize = 5, currentPage = 1, onPageChangeFnName }) {
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  if (totalItems <= pageSize) {
+    return `
+      <div class="pagination-container">
+        <span class="pagination-info">Hiển thị <strong>${totalItems}</strong> / <strong>${totalItems}</strong> bản ghi</span>
+      </div>
+    `;
+  }
+
+  const startItem = (currentPage - 1) * pageSize + 1;
+  const endItem = Math.min(currentPage * pageSize, totalItems);
+
+  let pageButtonsHtml = '';
+  for (let i = 1; i <= totalPages; i++) {
+    if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
+      pageButtonsHtml += `
+        <button class="pagination-btn ${i === currentPage ? 'active' : ''}"
+                onclick="${onPageChangeFnName}(${i})">${i}</button>
+      `;
+    } else if (i === currentPage - 3 || i === currentPage + 3) {
+      pageButtonsHtml += `<span style="padding:0 4px;color:var(--text-muted);user-select:none">...</span>`;
+    }
+  }
+
+  return `
+    <div class="pagination-container">
+      <div class="pagination-info">
+        Hiển thị <strong>${startItem} - ${endItem}</strong> trong tổng số <strong>${totalItems}</strong> (5 dòng/trang)
+      </div>
+      <div class="pagination-controls">
+        <button class="pagination-btn" ${currentPage === 1 ? 'disabled' : ''}
+                onclick="${onPageChangeFnName}(1)" title="Trang đầu">«</button>
+        <button class="pagination-btn" ${currentPage === 1 ? 'disabled' : ''}
+                onclick="${onPageChangeFnName}(${currentPage - 1})" title="Trang trước">‹</button>
+        ${pageButtonsHtml}
+        <button class="pagination-btn" ${currentPage === totalPages ? 'disabled' : ''}
+                onclick="${onPageChangeFnName}(${currentPage + 1})" title="Trang sau">›</button>
+        <button class="pagination-btn" ${currentPage === totalPages ? 'disabled' : ''}
+                onclick="${onPageChangeFnName}(${totalPages})" title="Trang cuối">»</button>
+      </div>
+    </div>
+  `;
+}
