@@ -345,7 +345,7 @@ const CUSTOMER_FEEDBACK_PAGE_SIZE = 5;
 let currentCustomerFeedbacks = [];
 
 async function renderCustomerFeedback() {
-  setPageHeader('💬 Phản hồi của tôi', 'Quản lý đánh giá sản phẩm bạn đã gửi',
+  setPageHeader('💬 Đánh giá của tôi', 'Quản lý đánh giá sản phẩm bạn đã gửi',
     `<button class="btn btn-primary" onclick="openNewFeedbackModal()">➕ Gửi đánh giá mới</button>`);
   showLoading();
   try {

@@ -22,29 +22,76 @@ function openEditAccountModalById(id) {
   if (a) openEditAccountModal(a);
 }
 
-function renderAccountsTable(accounts, searchParams = {}) {
-  currentAccountsList = accounts;
+const debounceFilterAccounts = debounce(filterAccounts, 150);
+
+function renderAccountRowsHtml(accounts) {
   const currentUserId = state?.user?.id ? Number(state.user.id) : null;
   const totalAdmins = allAccountsList.length
     ? allAccountsList.filter(x => x.role === 'ADMIN').length
     : accounts.filter(x => x.role === 'ADMIN').length;
 
+  if (accounts.length === 0) {
+    return `<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:40px">Không tìm thấy tài khoản nào</td></tr>`;
+  }
+
+  return accounts.map(a => {
+    const isCurrentUser = currentUserId && Number(a.id) === currentUserId;
+    const isOnlyAdmin = a.role === 'ADMIN' && totalAdmins <= 1;
+
+    let deleteBtnHtml = '';
+    if (isOnlyAdmin) {
+      deleteBtnHtml = `<button class="btn btn-trash btn-sm" style="opacity:0.4;cursor:not-allowed;" title="Không thể xóa tài khoản Admin duy nhất trong hệ thống" onclick="toast('Không thể xóa tài khoản Admin khi hệ thống chỉ còn duy nhất 1 Admin!', 'error')"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>`;
+    } else if (isCurrentUser) {
+      deleteBtnHtml = `<button class="btn btn-trash btn-sm" title="Xóa tài khoản hiện tại (Bạn sẽ bị đăng xuất)" onclick="deleteAccount(${a.id},'${a.full_name.replace(/'/g, "\\'")}')"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>`;
+    } else {
+      deleteBtnHtml = `<button class="btn btn-trash btn-sm" onclick="deleteAccount(${a.id},'${a.full_name.replace(/'/g, "\\'")}')"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>`;
+    }
+
+    return `
+      <tr class="row-clickable" title="💡 Nhấp đúp (Double-click) để xem và sửa thông tin" ondblclick="openEditAccountModalById(${a.id})">
+        <td><span style="color:var(--text-muted)">#${a.id}</span></td>
+        <td><strong>${a.full_name}</strong>${isCurrentUser ? ' <span style="font-size:10px;color:var(--text-muted)">(bạn)</span>' : ''}</td>
+        <td style="color:var(--text-secondary)">${a.email || '—'}</td>
+        <td style="color:var(--text-secondary)">${a.phone || '—'}</td>
+        <td>${roleBadge(a.role)}</td>
+        <td>${statusBadge(a.status)}</td>
+        <td style="color:var(--text-muted);font-size:12px">${formatDate(a.created_at)}</td>
+        <td onclick="event.stopPropagation()">
+          <div style="display:flex;gap:6px">
+            ${deleteBtnHtml}
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function renderAccountsTable(accounts, searchParams = {}) {
+  currentAccountsList = accounts;
+
+  const tbody = document.getElementById('accounts-tbody');
+  const countEl = document.getElementById('accounts-count');
+  if (tbody && countEl) {
+    tbody.innerHTML = renderAccountRowsHtml(accounts);
+    countEl.textContent = `Tổng: ${accounts.length} tài khoản · 💡 Nhấp đúp (Double-click) vào một dòng để xem và sửa thông tin`;
+    return;
+  }
+
   const html = `
     <div class="filter-bar">
-      <input type="text" id="acc-search" placeholder="🔍 Tìm tên, username, email..." value="${searchParams.search || ''}">
-      <select id="acc-role">
+      <input type="text" id="acc-search" placeholder="🔍 Tìm tên, username, email..." value="${searchParams.search || ''}" oninput="debounceFilterAccounts()">
+      <select id="acc-role" onchange="filterAccounts()">
         <option value="">Tất cả vai trò nội bộ</option>
         <option value="ADMIN" ${searchParams.role === 'ADMIN' ? 'selected' : ''}>👑 Admin</option>
         <option value="MANAGER" ${searchParams.role === 'MANAGER' ? 'selected' : ''}>📊 Manager</option>
       </select>
 
-      <select id="acc-status">
+      <select id="acc-status" onchange="filterAccounts()">
         <option value="">Tất cả trạng thái</option>
         <option value="ACTIVE" ${searchParams.status === 'ACTIVE' ? 'selected' : ''}>Hoạt động</option>
         <option value="LOCKED" ${searchParams.status === 'LOCKED' ? 'selected' : ''}>Bị khóa</option>
       </select>
-      <button class="btn btn-primary" onclick="filterAccounts()">🔍 Lọc</button>
-      <button class="btn btn-secondary" onclick="renderAdminAccounts()">↺ Reset</button>
+      <button class="btn btn-secondary" onclick="resetAdminAccountsFilters()">↺ Reset</button>
     </div>
     <div class="table-wrapper">
       <table>
@@ -52,50 +99,27 @@ function renderAccountsTable(accounts, searchParams = {}) {
           <th>ID</th><th>Họ và tên</th><th>Email</th><th>Số ĐT</th>
           <th>Vai trò</th><th>Trạng thái</th><th>Ngày tạo</th><th>Hành động</th>
         </tr></thead>
-        <tbody>
-          ${accounts.length === 0 ? `<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:40px">Không tìm thấy tài khoản nào</td></tr>` : accounts.map(a => {
-            const isCurrentUser = currentUserId && Number(a.id) === currentUserId;
-            const isOnlyAdmin = a.role === 'ADMIN' && totalAdmins <= 1;
-
-            let deleteBtnHtml = '';
-            if (isOnlyAdmin) {
-              deleteBtnHtml = `<button class="btn btn-trash btn-sm" style="opacity:0.4;cursor:not-allowed;" title="Không thể xóa tài khoản Admin duy nhất trong hệ thống" onclick="toast('Không thể xóa tài khoản Admin khi hệ thống chỉ còn duy nhất 1 Admin!', 'error')"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>`;
-            } else if (isCurrentUser) {
-              deleteBtnHtml = `<button class="btn btn-trash btn-sm" title="Xóa tài khoản hiện tại (Bạn sẽ bị đăng xuất)" onclick="deleteAccount(${a.id},'${a.full_name.replace(/'/g, "\\'")}')"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>`;
-            } else {
-              deleteBtnHtml = `<button class="btn btn-trash btn-sm" onclick="deleteAccount(${a.id},'${a.full_name.replace(/'/g, "\\'")}')"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>`;
-            }
-
-            return `
-            <tr class="row-clickable" title="💡 Nhấp đúp (Double-click) để xem và sửa thông tin" ondblclick="openEditAccountModalById(${a.id})">
-              <td><span style="color:var(--text-muted)">#${a.id}</span></td>
-              <td><strong>${a.full_name}</strong>${isCurrentUser ? ' <span style="font-size:10px;color:var(--text-muted)">(bạn)</span>' : ''}</td>
-              <td style="color:var(--text-secondary)">${a.email || '—'}</td>
-              <td style="color:var(--text-secondary)">${a.phone || '—'}</td>
-              <td>${roleBadge(a.role)}</td>
-              <td>${statusBadge(a.status)}</td>
-              <td style="color:var(--text-muted);font-size:12px">${formatDate(a.created_at)}</td>
-              <td onclick="event.stopPropagation()">
-                <div style="display:flex;gap:6px">
-                  ${deleteBtnHtml}
-                </div>
-              </td>
-            </tr>
-
-          `;
-          }).join('')}
+        <tbody id="accounts-tbody">
+          ${renderAccountRowsHtml(accounts)}
         </tbody>
       </table>
     </div>
-    <p style="color:var(--text-muted);font-size:12px;margin-top:10px">Tổng: ${accounts.length} tài khoản · 💡 Nhấp đúp (Double-click) vào một dòng để xem và sửa thông tin</p>
+    <p id="accounts-count" style="color:var(--text-muted);font-size:12px;margin-top:10px">Tổng: ${accounts.length} tài khoản · 💡 Nhấp đúp (Double-click) vào một dòng để xem và sửa thông tin</p>
   `;
   setPageContent(html);
 }
 
+function resetAdminAccountsFilters() {
+  const s = document.getElementById('acc-search'); if (s) s.value = '';
+  const r = document.getElementById('acc-role'); if (r) r.value = '';
+  const st = document.getElementById('acc-status'); if (st) st.value = '';
+  filterAccounts();
+}
+
 async function filterAccounts() {
-  const search = document.getElementById('acc-search').value.trim();
-  const role = document.getElementById('acc-role').value;
-  const status = document.getElementById('acc-status').value;
+  const search = document.getElementById('acc-search')?.value.trim() || '';
+  const role = document.getElementById('acc-role')?.value || '';
+  const status = document.getElementById('acc-status')?.value || '';
   const params = new URLSearchParams();
   if (search) params.append('search', search);
   if (role) params.append('role', role);
@@ -277,7 +301,47 @@ function openEditProductModalById(id) {
   if (p) openEditProductModal(p);
 }
 
-async function fetchAndRenderProducts(filters) {
+function renderProductRowsHtml(products) {
+  if (products.length === 0) {
+    return `<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:40px">Không tìm thấy sản phẩm nào</td></tr>`;
+  }
+  return products.map(p => `
+    <tr>
+      <td><span style="color:var(--text-muted)">#${p.id}</span></td>
+      <td>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:22px">${getCategoryIcon(p.category)}</span>
+          <div>
+            <div style="font-weight:600;max-width:200px">${escapeHtml(p.name)}</div>
+            <div style="font-size:11px;color:var(--text-muted)">${p.description ? escapeHtml(p.description.substring(0, 50)) + '...' : ''}</div>
+          </div>
+        </div>
+      </td>
+      <td><span class="tag">${escapeHtml(p.category)}</span></td>
+      <td style="color:var(--text-secondary);font-size:12px">${p.supplier_name ? escapeHtml(p.supplier_name) : '—'}</td>
+      <td><strong style="color:var(--rose-300)">${formatCurrency(p.price)}</strong></td>
+      <td>
+        <div>
+          ${launchBadge(p.launch_status)}
+          ${p.review_count > 0 
+            ? `<div style="font-size:11px;color:#93c5fd;margin-top:3px;font-weight:500">💬 ${p.review_count} đánh giá</div>` 
+            : `<div style="font-size:11px;color:var(--text-muted);margin-top:3px">Chưa có đánh giá</div>`}
+        </div>
+      </td>
+      <td style="color:var(--text-muted);font-size:12px">${formatDate(p.created_at)}</td>
+      <td>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-secondary btn-sm" onclick="openEditProductModalById(${p.id})" title="Chỉnh sửa sản phẩm">✏️</button>
+          <button class="btn btn-trash btn-sm" onclick="deleteProduct(${p.id},'${p.name.replace(/'/g, "\\'")}',${Number(p.review_count) || 0})" title="${Number(p.review_count) > 0 ? 'Ngừng kinh doanh (bảo toàn đánh giá CRM)' : 'Xóa vĩnh viễn'}"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+const debounceProductFilters = debounce(applyProductFilters, 150);
+
+async function fetchAndRenderProducts(filters = {}) {
   productFilters = filters;
   try {
     const params = new URLSearchParams();
@@ -293,34 +357,33 @@ async function fetchAndRenderProducts(filters) {
 
     const html = `
       <div class="filter-bar">
-        <input type="text" id="prod-search" placeholder="🔍 Tên sản phẩm..." value="${filters.search || ''}">
-        <select id="prod-cat">
+        <input type="text" id="prod-search" placeholder="🔍 Tên sản phẩm..." value="${filters.search || ''}" oninput="debounceProductFilters()">
+        <select id="prod-cat" onchange="applyProductFilters()">
           <option value="">Tất cả danh mục</option>
           ${['Son môi', 'Kem dưỡng da', 'Serum', 'Kem chống nắng', 'Phấn phủ', 'Sữa rửa mặt', 'Toner', 'Mặt nạ']
         .map(c => `<option value="${c}" ${filters.category === c ? 'selected' : ''}>${c}</option>`).join('')}
         </select>
-        <select id="prod-supplier">
+        <select id="prod-supplier" onchange="applyProductFilters()">
           <option value="">Tất cả NCC</option>${supplierOptions}
         </select>
-        <select id="prod-launch">
+        <select id="prod-launch" onchange="applyProductFilters()">
           <option value="">Tất cả trạng thái</option>
           <option value="OFFICIAL" ${filters.launch_status === 'OFFICIAL' ? 'selected' : ''}>✓ Đang kinh doanh (Mở đánh giá)</option>
           <option value="UPCOMING" ${filters.launch_status === 'UPCOMING' ? 'selected' : ''}>🚫 Ngừng kinh doanh (Đóng đánh giá)</option>
         </select>
-        <input type="number" id="prod-minprice" placeholder="Giá từ (₫)" value="${filters.min_price || ''}" style="max-width:120px">
-        <input type="number" id="prod-maxprice" placeholder="Đến (₫)" value="${filters.max_price || ''}" style="max-width:120px">
-        <select id="prod-sort">
+        <input type="number" id="prod-minprice" placeholder="Giá từ (₫)" value="${filters.min_price || ''}" style="max-width:120px" oninput="debounceProductFilters()">
+        <input type="number" id="prod-maxprice" placeholder="Đến (₫)" value="${filters.max_price || ''}" style="max-width:120px" oninput="debounceProductFilters()">
+        <select id="prod-sort" onchange="applyProductFilters()">
           <option value="created_at" ${filters.sort_by === 'created_at' ? 'selected' : ''}>Mới nhất</option>
           <option value="price" ${filters.sort_by === 'price' ? 'selected' : ''}>Theo giá</option>
           <option value="name" ${filters.sort_by === 'name' ? 'selected' : ''}>Theo tên A-Z</option>
           <option value="review_count" ${filters.sort_by === 'review_count' ? 'selected' : ''}>Theo đánh giá</option>
         </select>
-        <select id="prod-sortdir">
+        <select id="prod-sortdir" onchange="applyProductFilters()">
           <option value="desc" ${filters.sort_dir === 'desc' ? 'selected' : ''}>▼ Giảm dần</option>
           <option value="asc" ${filters.sort_dir === 'asc' ? 'selected' : ''}>▲ Tăng dần</option>
         </select>
-        <button class="btn btn-primary" onclick="applyProductFilters()">🔍 Tìm & Lọc</button>
-        <button class="btn btn-secondary" onclick="fetchAndRenderProducts({})">↺ Reset</button>
+        <button class="btn btn-secondary" onclick="resetProductFilters()">↺ Reset</button>
       </div>
 
       <div class="table-wrapper">
@@ -329,59 +392,56 @@ async function fetchAndRenderProducts(filters) {
             <th>ID</th><th>Sản phẩm</th><th>Danh mục</th><th>Nhà cung cấp</th>
             <th>Giá</th><th>Trạng thái kinh doanh</th><th>Ngày tạo</th><th>Hành động</th>
           </tr></thead>
-          <tbody>
-            ${products.length === 0 ? `<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:40px">Không tìm thấy sản phẩm nào</td></tr>` : products.map(p => `
-              <tr>
-                <td><span style="color:var(--text-muted)">#${p.id}</span></td>
-                <td>
-                  <div style="display:flex;align-items:center;gap:10px">
-                    <span style="font-size:22px">${getCategoryIcon(p.category)}</span>
-                    <div>
-                      <div style="font-weight:600;max-width:200px">${escapeHtml(p.name)}</div>
-                      <div style="font-size:11px;color:var(--text-muted)">${p.description ? escapeHtml(p.description.substring(0, 50)) + '...' : ''}</div>
-                    </div>
-                  </div>
-                </td>
-                <td><span class="tag">${escapeHtml(p.category)}</span></td>
-                <td style="color:var(--text-secondary);font-size:12px">${p.supplier_name ? escapeHtml(p.supplier_name) : '—'}</td>
-                <td><strong style="color:var(--rose-300)">${formatCurrency(p.price)}</strong></td>
-                <td>
-                  <div>
-                    ${launchBadge(p.launch_status)}
-                    ${p.review_count > 0 
-                      ? `<div style="font-size:11px;color:#93c5fd;margin-top:3px;font-weight:500">💬 ${p.review_count} đánh giá</div>` 
-                      : `<div style="font-size:11px;color:var(--text-muted);margin-top:3px">Chưa có đánh giá</div>`}
-                  </div>
-                </td>
-                <td style="color:var(--text-muted);font-size:12px">${formatDate(p.created_at)}</td>
-                <td>
-                  <div style="display:flex;gap:6px">
-                    <button class="btn btn-secondary btn-sm" onclick="openEditProductModalById(${p.id})" title="Chỉnh sửa sản phẩm">✏️</button>
-                    <button class="btn btn-trash btn-sm" onclick="deleteProduct(${p.id},'${p.name.replace(/'/g, "\\'")}',${Number(p.review_count) || 0})" title="${Number(p.review_count) > 0 ? 'Ngừng kinh doanh (bảo toàn đánh giá CRM)' : 'Xóa vĩnh viễn'}"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>
-                  </div>
-                </td>
-              </tr>
-            `).join('')}
+          <tbody id="products-tbody">
+            ${renderProductRowsHtml(products)}
           </tbody>
         </table>
       </div>
-      <p style="color:var(--text-muted);font-size:12px;margin-top:10px">Hiển thị ${products.length} sản phẩm</p>
+      <p id="products-count" style="color:var(--text-muted);font-size:12px;margin-top:10px">Hiển thị ${products.length} sản phẩm</p>
     `;
     setPageContent(html);
   } catch (e) { toast(e.message, 'error'); }
 }
 
-function applyProductFilters() {
-  fetchAndRenderProducts({
-    search: document.getElementById('prod-search').value.trim(),
-    category: document.getElementById('prod-cat').value,
-    supplier_id: document.getElementById('prod-supplier').value,
-    launch_status: document.getElementById('prod-launch').value,
-    min_price: document.getElementById('prod-minprice').value,
-    max_price: document.getElementById('prod-maxprice').value,
-    sort_by: document.getElementById('prod-sort').value,
-    sort_dir: document.getElementById('prod-sortdir').value,
-  });
+async function applyProductFilters() {
+  const filters = {
+    search: document.getElementById('prod-search')?.value.trim() || '',
+    category: document.getElementById('prod-cat')?.value || '',
+    supplier_id: document.getElementById('prod-supplier')?.value || '',
+    launch_status: document.getElementById('prod-launch')?.value || '',
+    min_price: document.getElementById('prod-minprice')?.value || '',
+    max_price: document.getElementById('prod-maxprice')?.value || '',
+    sort_by: document.getElementById('prod-sort')?.value || 'created_at',
+    sort_dir: document.getElementById('prod-sortdir')?.value || 'desc',
+  };
+  productFilters = filters;
+
+  const tbody = document.getElementById('products-tbody');
+  const countEl = document.getElementById('products-count');
+  if (tbody && countEl) {
+    try {
+      const params = new URLSearchParams();
+      Object.entries(filters).forEach(([k, v]) => { if (v) params.append(k, v); });
+      const products = await api('GET', `/api/admin/products?${params}`);
+      currentProductsList = products;
+      tbody.innerHTML = renderProductRowsHtml(products);
+      countEl.textContent = `Hiển thị ${products.length} sản phẩm`;
+    } catch (e) { toast(e.message, 'error'); }
+    return;
+  }
+  fetchAndRenderProducts(filters);
+}
+
+function resetProductFilters() {
+  const s = document.getElementById('prod-search'); if (s) s.value = '';
+  const c = document.getElementById('prod-cat'); if (c) c.value = '';
+  const sup = document.getElementById('prod-supplier'); if (sup) sup.value = '';
+  const l = document.getElementById('prod-launch'); if (l) l.value = '';
+  const min = document.getElementById('prod-minprice'); if (min) min.value = '';
+  const max = document.getElementById('prod-maxprice'); if (max) max.value = '';
+  const sort = document.getElementById('prod-sort'); if (sort) sort.value = 'created_at';
+  const sdir = document.getElementById('prod-sortdir'); if (sdir) sdir.value = 'desc';
+  applyProductFilters();
 }
 
 async function openCreateProductModal() {
@@ -559,18 +619,77 @@ function openEditSupplierModalById(id) {
   if (s) openEditSupplierModal(s);
 }
 
+const debounceFilterSuppliers = debounce(filterSuppliers, 150);
+
+function renderSupplierRowsHtml(suppliers) {
+  if (suppliers.length === 0) {
+    return `<tr><td colspan="9" style="text-align:center;padding:40px;color:var(--text-muted)">Không tìm thấy nhà cung cấp nào</td></tr>`;
+  }
+  return suppliers.map(s => {
+    const prodCount = Number(s.product_count) || 0;
+    const revCount = Number(s.review_count) || 0;
+    let ratingHtml = `<span style="color:var(--text-muted);font-size:12px">Chưa có đánh giá</span>`;
+    if (revCount > 0 && s.avg_rating !== null && s.avg_rating !== undefined) {
+      const avg = Number(s.avg_rating);
+      const isLow = avg < 3.0;
+      const badgeStyle = isLow 
+        ? 'background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3);padding:2px 8px;border-radius:12px;font-weight:600' 
+        : 'color:#fbbf24;font-weight:600';
+      ratingHtml = `
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="${badgeStyle}">${isLow ? '⚠️ ' : '⭐ '}${avg.toFixed(1)}</span>
+          <span style="font-size:11px;color:var(--text-muted)">(${revCount} đánh giá)</span>
+        </div>
+      `;
+    }
+
+    return `
+      <tr>
+        <td><span style="color:var(--text-muted)">#${s.id}</span></td>
+        <td>
+          <strong style="color:var(--text-primary);font-size:14px">${escapeHtml(s.name)}</strong>
+        </td>
+        <td style="color:var(--text-secondary);font-size:13px">${s.contact_name ? escapeHtml(s.contact_name) : '—'}</td>
+        <td style="color:var(--text-secondary);font-size:12px">✉️ ${escapeHtml(s.email || '—')}</td>
+        <td style="font-size:12px;font-weight:500;color:var(--text-primary)">📞 ${escapeHtml(s.phone || '—')}</td>
+        <td>
+          <span class="tag" style="font-size:12px;background:rgba(99,102,241,0.12);color:#818cf8;border:1px solid rgba(99,102,241,0.25)">
+            📦 <strong>${prodCount}</strong> sản phẩm
+          </span>
+        </td>
+        <td>${ratingHtml}</td>
+        <td>${statusBadge(s.status)}</td>
+        <td>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-secondary btn-sm" onclick="openEditSupplierModalById(${s.id})" title="Chỉnh sửa nhà cung cấp">✏️</button>
+            <button class="btn btn-trash btn-sm" onclick="deleteSupplier(${s.id},'${s.name.replace(/'/g, "\\'")}',${prodCount})" title="${prodCount > 0 ? 'Ngừng hợp tác (đang có sản phẩm)' : 'Xóa vĩnh viễn'}"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
 function renderSuppliersTable(suppliers) {
   currentSuppliersList = suppliers;
+
+  const tbody = document.getElementById('suppliers-tbody');
+  const countEl = document.getElementById('suppliers-count');
+  if (tbody && countEl) {
+    tbody.innerHTML = renderSupplierRowsHtml(suppliers);
+    countEl.textContent = `Hiển thị ${suppliers.length} nhà cung cấp đối tác`;
+    return;
+  }
+
   const html = `
     <div class="filter-bar">
-      <input type="text" id="sup-search" placeholder="🔍 Tên, người liên hệ, email, SĐT...">
-      <select id="sup-status">
+      <input type="text" id="sup-search" placeholder="🔍 Tên, người liên hệ, email, SĐT..." oninput="debounceFilterSuppliers()">
+      <select id="sup-status" onchange="filterSuppliers()">
         <option value="">Tất cả trạng thái</option>
         <option value="ACTIVE">✓ Đang hợp tác</option>
         <option value="INACTIVE">✕ Ngừng hợp tác</option>
       </select>
-      <button class="btn btn-primary" onclick="filterSuppliers()">🔍 Lọc</button>
-      <button class="btn btn-secondary" onclick="renderAdminSuppliers()">↺ Reset</button>
+      <button class="btn btn-secondary" onclick="resetSupplierFilters()">↺ Reset</button>
     </div>
     <div class="table-wrapper">
       <table>
@@ -587,61 +706,25 @@ function renderSuppliersTable(suppliers) {
             <th>Hành động</th>
           </tr>
         </thead>
-        <tbody>
-          ${suppliers.length === 0 ? `<tr><td colspan="9" style="text-align:center;padding:40px;color:var(--text-muted)">Không tìm thấy nhà cung cấp nào</td></tr>` : suppliers.map(s => {
-            const prodCount = Number(s.product_count) || 0;
-            const revCount = Number(s.review_count) || 0;
-            let ratingHtml = `<span style="color:var(--text-muted);font-size:12px">Chưa có đánh giá</span>`;
-            if (revCount > 0 && s.avg_rating !== null && s.avg_rating !== undefined) {
-              const avg = Number(s.avg_rating);
-              const isLow = avg < 3.0;
-              const badgeStyle = isLow 
-                ? 'background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3);padding:2px 8px;border-radius:12px;font-weight:600' 
-                : 'color:#fbbf24;font-weight:600';
-              ratingHtml = `
-                <div style="display:flex;align-items:center;gap:6px">
-                  <span style="${badgeStyle}">${isLow ? '⚠️ ' : '⭐ '}${avg.toFixed(1)}</span>
-                  <span style="font-size:11px;color:var(--text-muted)">(${revCount} đánh giá)</span>
-                </div>
-              `;
-            }
-
-            return `
-              <tr>
-                <td><span style="color:var(--text-muted)">#${s.id}</span></td>
-                <td>
-                  <strong style="color:var(--text-primary);font-size:14px">${escapeHtml(s.name)}</strong>
-                </td>
-                <td style="color:var(--text-secondary);font-size:13px">${s.contact_name ? escapeHtml(s.contact_name) : '—'}</td>
-                <td style="color:var(--text-secondary);font-size:12px">✉️ ${escapeHtml(s.email || '—')}</td>
-                <td style="font-size:12px;font-weight:500;color:var(--text-primary)">📞 ${escapeHtml(s.phone || '—')}</td>
-                <td>
-                  <span class="tag" style="font-size:12px;background:rgba(99,102,241,0.12);color:#818cf8;border:1px solid rgba(99,102,241,0.25)">
-                    📦 <strong>${prodCount}</strong> sản phẩm
-                  </span>
-                </td>
-                <td>${ratingHtml}</td>
-                <td>${statusBadge(s.status)}</td>
-                <td>
-                  <div style="display:flex;gap:6px">
-                    <button class="btn btn-secondary btn-sm" onclick="openEditSupplierModalById(${s.id})" title="Chỉnh sửa nhà cung cấp">✏️</button>
-                    <button class="btn btn-trash btn-sm" onclick="deleteSupplier(${s.id},'${s.name.replace(/'/g, "\\'")}',${prodCount})" title="${prodCount > 0 ? 'Ngừng hợp tác (đang có sản phẩm)' : 'Xóa vĩnh viễn'}"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>
-                  </div>
-                </td>
-              </tr>
-            `;
-          }).join('')}
+        <tbody id="suppliers-tbody">
+          ${renderSupplierRowsHtml(suppliers)}
         </tbody>
       </table>
     </div>
-    <p style="color:var(--text-muted);font-size:12px;margin-top:10px">Hiển thị ${suppliers.length} nhà cung cấp đối tác</p>
+    <p id="suppliers-count" style="color:var(--text-muted);font-size:12px;margin-top:10px">Hiển thị ${suppliers.length} nhà cung cấp đối tác</p>
   `;
   setPageContent(html);
 }
 
+function resetSupplierFilters() {
+  const s = document.getElementById('sup-search'); if (s) s.value = '';
+  const st = document.getElementById('sup-status'); if (st) st.value = '';
+  filterSuppliers();
+}
+
 async function filterSuppliers() {
-  const search = document.getElementById('sup-search').value.trim();
-  const status = document.getElementById('sup-status').value;
+  const search = document.getElementById('sup-search')?.value.trim() || '';
+  const status = document.getElementById('sup-status')?.value || '';
   const params = new URLSearchParams();
   if (search) params.append('search', search);
   if (status) params.append('status', status);

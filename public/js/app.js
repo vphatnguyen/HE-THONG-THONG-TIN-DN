@@ -81,6 +81,29 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
+function debounce(fn, delay = 150) {
+  let timeoutId;
+  return function (...args) {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => fn.apply(this, args), delay);
+  };
+}
+
+function removeVietnameseTones(str) {
+  if (!str) return '';
+  str = String(str).toLowerCase().trim();
+  str = str.replace(/à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ/g, 'a');
+  str = str.replace(/è|é|ẹ|ẻ|ẽ|ê|ề|ế|ệ|ể|ễ/g, 'e');
+  str = str.replace(/ì|í|ị|ỉ|ĩ/g, 'i');
+  str = str.replace(/ò|ó|ọ|ỏ|õ|ô|ồ|ố|ộ|ổ|ỗ|ơ|ờ|ớ|ợ|ở|ỡ/g, 'o');
+  str = str.replace(/ù|ú|ụ|ủ|ũ|ư|ừ|ứ|ự|ử|ữ/g, 'u');
+  str = str.replace(/ỳ|ý|ỵ|ỷ|ỹ/g, 'y');
+  str = str.replace(/đ/g, 'd');
+  str = str.replace(/\u0300|\u0301|\u0303|\u0309|\u0323/g, '');
+  str = str.replace(/\u02C6|\u0306|\u031B/g, '');
+  return str;
+}
+
 
 function roleBadge(role) {
   const map = { ADMIN: 'badge-admin', MANAGER: 'badge-manager', CUSTOMER: 'badge-customer' };
@@ -208,7 +231,7 @@ function buildSidebar() {
     MANAGER: [
       { label: 'PHÂN HỆ QUẢN LÝ CRM', type: 'section' },
       { id: 'manager-dashboard', icon: '📊', label: 'Dashboard & Báo cáo' },
-      { id: 'manager-analytics', icon: '📈', label: 'Phân tích CRM' },
+      { id: 'manager-analytics', icon: '📈', label: 'Phân tích đánh giá & khảo sát' },
       { id: 'manager-customers', icon: '👩', label: 'Quản lý Khách hàng' },
       { id: 'manager-products', icon: '💄', label: 'Quản lý Sản phẩm' },
       { id: 'manager-suppliers', icon: '🏪', label: 'Nhà cung cấp' },
@@ -219,7 +242,7 @@ function buildSidebar() {
       { label: 'PHÂN HỆ KHÁCH HÀNG', type: 'section' },
       { id: 'customer-home', icon: '🏠', label: 'Trang chủ' },
       { id: 'customer-surveys', icon: '📋', label: 'Bài khảo sát của tôi' },
-      { id: 'customer-feedback', icon: '💬', label: 'Phản hồi của tôi' },
+      { id: 'customer-feedback', icon: '💬', label: 'Đánh giá của tôi' },
       { id: 'customer-profile', icon: '👤', label: 'Hồ sơ cá nhân' },
     ],
   };

@@ -947,7 +947,7 @@ app.get('/api/manager/analytics', authMiddleware, requireRole('MANAGER'), async 
     });
 
     const feedbackByProduct = await db.prepare(`
-      SELECT p.id AS product_id, p.name AS product_name, p.category,
+      SELECT p.id AS product_id, p.name AS product_name, p.category, p.supplier_id, s.name AS supplier_name,
         COUNT(f.id) AS count,
         ROUND(AVG(CAST(f.rating AS FLOAT)), 1) AS average,
         SUM(CASE WHEN f.rating >= 4 THEN 1 ELSE 0 END) AS positive_count,
@@ -955,14 +955,16 @@ app.get('/api/manager/analytics', authMiddleware, requireRole('MANAGER'), async 
         SUM(CASE WHEN f.status = 'REPLIED' THEN 1 ELSE 0 END) AS replied_count,
         SUM(CASE WHEN f.status = 'PENDING' THEN 1 ELSE 0 END) AS pending_count
       FROM Products p
+      LEFT JOIN Suppliers s ON p.supplier_id = s.id
       LEFT JOIN Feedbacks f ON p.id = f.product_id${feedbackDateWhere}
-      GROUP BY p.id, p.name, p.category
+      GROUP BY p.id, p.name, p.category, p.supplier_id, s.name
       ORDER BY average DESC, count DESC
     `).all(...feedbackDateParams);
 
     const surveyOverview = await db.prepare(`
       SELECT s.id, s.title, s.description, s.status, s.start_date, s.end_date, s.created_at,
         (SELECT STRING_AGG(p2.name, N', ') FROM SurveyProducts sp2 JOIN Products p2 ON sp2.product_id = p2.id WHERE sp2.survey_id = s.id) AS product_names,
+        (SELECT COUNT(*) FROM SurveyProducts sp3 WHERE sp3.survey_id = s.id) AS product_count,
         (SELECT COUNT(*) FROM Questions q WHERE q.survey_id = s.id) AS question_count,
         (SELECT COUNT(*) FROM SurveyRecipients r WHERE r.survey_id = s.id) AS recipients,
         (SELECT COUNT(*) FROM SurveyResults sr WHERE sr.survey_id = s.id) AS responses
@@ -989,6 +991,7 @@ app.get('/api/manager/analytics', authMiddleware, requireRole('MANAGER'), async 
     `).all(...feedbackDateParams);
 
     const productCategories = (await db.prepare('SELECT DISTINCT category FROM Products WHERE category IS NOT NULL ORDER BY category').all()).map(r => r.category);
+    const suppliers = await db.prepare('SELECT id, name, status FROM Suppliers ORDER BY name').all();
 
     const totalCustomers = totalCustRow?.cnt || 0;
     const lockedCustomers = lockedCustRow?.cnt || 0;
@@ -1002,7 +1005,7 @@ app.get('/api/manager/analytics', authMiddleware, requireRole('MANAGER'), async 
 
     res.json({
       ageGroups, skinTypes, genderGroups, beautyPrefs, customerProfiles, newCustomersByMonth,
-      feedbackByProduct, surveyOverview, ratingTrendByMonth, productCategories,
+      feedbackByProduct, surveyOverview, ratingTrendByMonth, productCategories, suppliers,
       stats: {
         totalCustomers, lockedCustomers, avgRating, medianRating, totalFeedbacks, repliedFeedbacks,
         pendingFeedbacks, negativeFeedbacks,
@@ -1435,9 +1438,21 @@ app.post('/api/manager/surveys/:id/send', authMiddleware, requireRole('MANAGER')
 app.get('/api/manager/surveys/:id/results', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
     const surveyId = Number(req.params.id);
-    const survey = await db.prepare('SELECT * FROM Surveys WHERE id = ?').get(surveyId);
+    const survey = await db.prepare(`
+      SELECT s.*,
+        (SELECT STRING_AGG(p.name, N', ') FROM SurveyProducts sp JOIN Products p ON sp.product_id = p.id WHERE sp.survey_id = s.id) AS product_names
+      FROM Surveys s WHERE s.id = ?
+    `).get(surveyId);
     if (!survey) return res.status(404).json({ error: 'Không tìm thấy khảo sát' });
     const questions = await db.prepare('SELECT * FROM Questions WHERE survey_id = ? ORDER BY order_index').all(surveyId);
+    const products = await db.prepare(`
+      SELECT p.id, p.name, p.category, s.name AS supplier_name
+      FROM SurveyProducts sp
+      JOIN Products p ON sp.product_id = p.id
+      LEFT JOIN Suppliers s ON p.supplier_id = s.id
+      WHERE sp.survey_id = ?
+      ORDER BY p.name
+    `).all(surveyId);
 
     // Lấy toàn bộ câu trả lời kèm thông tin khách hàng và tài khoản
     const allAnswers = await db.prepare(`
@@ -1672,6 +1687,7 @@ app.get('/api/manager/surveys/:id/results', authMiddleware, requireRole('MANAGER
 
     res.json({
       survey,
+      products,
       stats,
       results,
       respondents,
@@ -1734,12 +1750,28 @@ app.post('/api/manager/surveys/:id/remind', authMiddleware, requireRole('MANAGER
 // ========== MANAGER: Feedbacks ==========
 app.get('/api/manager/feedbacks', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
-    const { rating, status } = req.query;
+    const { rating, status, search } = req.query;
     let sql = `SELECT f.*, a.full_name as customer_name, p.name as product_name
       FROM Feedbacks f JOIN Customers c ON f.customer_id = c.id JOIN Accounts a ON c.account_id = a.id JOIN Products p ON f.product_id = p.id WHERE 1=1`;
     const params = [];
-    if (rating) { sql += ' AND f.rating = ?'; params.push(Number(rating)); }
+    if (rating) {
+      if (rating === 'GROUP_NEGATIVE' || rating === 'NEGATIVE' || rating === '1-2') {
+        sql += ' AND f.rating <= 2';
+      } else if (rating === 'NEUTRAL' || rating === '3') {
+        sql += ' AND f.rating = 3';
+      } else if (rating === 'GROUP_POSITIVE' || rating === 'POSITIVE' || rating === '4-5') {
+        sql += ' AND f.rating >= 4';
+      } else if (!isNaN(Number(rating))) {
+        sql += ' AND f.rating = ?';
+        params.push(Number(rating));
+      }
+    }
     if (status) { sql += ' AND f.status = ?'; params.push(status); }
+    if (search && search.trim()) {
+      sql += ' AND (a.full_name LIKE ? OR p.name LIKE ? OR f.content LIKE ?)';
+      const term = `%${search.trim()}%`;
+      params.push(term, term, term);
+    }
     sql += ' ORDER BY f.created_at DESC';
     const rows = await db.prepare(sql).all(...params);
     res.json(rows);
@@ -2084,10 +2116,15 @@ app.get('/api/manager/feedbacks/:id/audit-logs', authMiddleware, requireRole('MA
 app.get('/api/products', authMiddleware, async (req, res) => {
   try {
     const { launch_status } = req.query;
-    let sql = 'SELECT id, name, category, price, launch_status FROM Products WHERE 1=1';
+    let sql = `
+      SELECT p.id, p.name, p.category, p.supplier_id, s.name as supplier_name, p.price, p.launch_status 
+      FROM Products p 
+      LEFT JOIN Suppliers s ON p.supplier_id = s.id 
+      WHERE 1=1
+    `;
     const params = [];
-    if (launch_status) { sql += ' AND launch_status = ?'; params.push(launch_status); }
-    sql += ' ORDER BY name';
+    if (launch_status) { sql += ' AND p.launch_status = ?'; params.push(launch_status); }
+    sql += ' ORDER BY p.name';
     const rows = await db.prepare(sql).all(...params);
     res.json(rows);
   } catch (err) {
