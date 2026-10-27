@@ -1207,7 +1207,7 @@ async function openProductReviewersModal(productId, productName) {
 // ========== MANAGER: CUSTOMERS ==========
 let currentCustomersList = [];
 let managerCustomerPage = 1;
-const MANAGER_CUSTOMER_PAGE_SIZE = 5;
+const MANAGER_CUSTOMER_PAGE_SIZE = 10;
 
 async function renderManagerCustomers() {
   setPageHeader('👩 Quản lý Khách hàng', 'Thêm, sửa, xóa, khóa và theo dõi hồ sơ khách hàng',
@@ -1227,23 +1227,39 @@ async function fetchAndRenderCustomers(filters) {
     const skinOptions = ['Da dầu', 'Da khô', 'Da hỗn hợp', 'Da nhạy cảm', 'Da thường']
       .map(s => `<option value="${s}" ${filters.skin_type === s ? 'selected' : ''}>${s}</option>`).join('');
 
+    const prefOptions = BEAUTY_PREFERENCE_OPTIONS
+      .map(p => `<option value="${p}" ${filters.beauty_preference === p ? 'selected' : ''}>${p}</option>`).join('');
+
     const html = `
       <div class="filter-bar">
-        <input type="text" id="cust-search" placeholder="🔍 Tên, email, số điện thoại..." value="${filters.search || ''}" oninput="debounceFilterCustomers()">
-        <select id="cust-skin" onchange="filterCustomers()"><option value="">Tất cả loại da</option>${skinOptions}</select>
-        <select id="cust-status" onchange="filterCustomers()">
-          <option value="">Tất cả</option>
-          <option value="ACTIVE" ${filters.status === 'ACTIVE' ? 'selected' : ''}>✓ Hoạt động</option>
-          <option value="LOCKED" ${filters.status === 'LOCKED' ? 'selected' : ''}>🔒 Bị khóa</option>
+        <input type="text" id="cust-search" placeholder="🔍 Tên, email, số điện thoại, tài khoản..." value="${filters.search || ''}" oninput="debounceFilterCustomers()">
+        <select id="cust-skin" onchange="filterCustomers()">
+          <option value="">Tất cả loại da</option>
+          ${skinOptions}
         </select>
-        <button class="btn btn-secondary" onclick="resetCustomerFilters()">↺ Reset</button>
+        <select id="cust-pref" onchange="filterCustomers()">
+          <option value="">Tất cả sở thích</option>
+          ${prefOptions}
+        </select>
+        <select id="cust-status" onchange="filterCustomers()">
+          <option value="">Tất cả trạng thái</option>
+          <option value="ACTIVE" ${filters.status === 'ACTIVE' ? 'selected' : ''}>✓ Hoạt động</option>
+          <option value="LOCKED" ${filters.status === 'LOCKED' ? 'selected' : ''}>🔒 Đã khóa</option>
+        </select>
+        <button class="btn btn-secondary" onclick="resetCustomerFilters()">↺ Đặt lại</button>
       </div>
 
       <div class="table-wrapper">
         <table>
           <thead><tr>
-            <th>Khách hàng</th><th>Liên hệ</th><th>Độ tuổi</th><th>Loại da</th>
-            <th>Sở thích</th><th>Tương tác CRM</th><th>Trạng thái</th><th>Ngày ĐK</th><th>Hành động</th>
+            <th>Khách hàng</th>
+            <th>Tên tài khoản</th>
+            <th>Email</th>
+            <th>Số điện thoại</th>
+            <th>Tương tác CRM</th>
+            <th>Trạng thái</th>
+            <th>Ngày tạo TK</th>
+            <th>Hành động</th>
           </tr></thead>
           <tbody id="customers-tbody"></tbody>
         </table>
@@ -1264,7 +1280,7 @@ function renderCustomerTablePage(page) {
 
   const total = currentCustomersList.length;
   if (total === 0) {
-    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:40px;color:var(--text-muted)">Không tìm thấy khách hàng</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text-muted)">Không tìm thấy khách hàng</td></tr>`;
     if (paginationEl) paginationEl.innerHTML = '';
     return;
   }
@@ -1297,24 +1313,23 @@ function renderCustomerTablePage(page) {
     }
 
     return `
-      <tr class="row-clickable" title="💡 Nhấp đúp (Double-click) để xem và sửa thông tin" ondblclick="openEditCustomerModalById(${c.id})">
+      <tr class="row-clickable" title="💡 Nhấp đúp (Double-click) để xem và sửa thông tin" ondblclick="openEditCustomerModalById(${c.id})" data-skin="${escapeHtml(c.skin_type || '')}" data-interest="${escapeHtml(c.beauty_preferences || '')}">
         <td>
           <div style="display:flex;align-items:center;gap:10px">
-            <div class="user-avatar" style="width:34px;height:34px;font-size:13px">${c.full_name ? c.full_name.charAt(0) : 'U'}</div>
-            <div style="font-weight:600">${escapeHtml(c.full_name)}</div>
+            <div class="customer-avatar">${c.full_name ? c.full_name.charAt(0).toUpperCase() : 'U'}</div>
+            <div style="font-weight:600;color:var(--text-primary)">${escapeHtml(c.full_name || '—')}</div>
           </div>
         </td>
-        <td style="font-size:12px;color:var(--text-secondary)">${escapeHtml(c.email || c.phone || '—')}</td>
-        <td style="text-align:center">${c.age ? `<strong>${c.age}</strong> tuổi` : '—'}</td>
-        <td>${c.skin_type ? `<span class="tag" style="font-size:11px">${escapeHtml(c.skin_type)}</span>` : '—'}</td>
-        <td style="max-width:160px">
-          <div class="tag-list">
-            ${c.beauty_preferences ? c.beauty_preferences.split(',').slice(0, 2).map(p => `<span class="tag" style="font-size:10px">${escapeHtml(p.trim())}</span>`).join('') : '—'}
-          </div>
+        <td>
+          <span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:6px;background:rgba(33,78,52,0.08);color:#214e34;border:1px solid rgba(33,78,52,0.22);font-family:monospace;font-size:12px;font-weight:600">
+            @${escapeHtml(c.username || 'user')}
+          </span>
         </td>
+        <td style="font-size:12.5px;color:var(--text-secondary)">${escapeHtml(c.email || '—')}</td>
+        <td style="font-size:12.5px;font-weight:500;color:var(--text-primary)">${escapeHtml(c.phone || '—')}</td>
         <td>${interactionHtml}</td>
         <td>${statusBadge(c.status)}</td>
-        <td style="font-size:11px;color:var(--text-muted)">${formatDate(c.created_at)}</td>
+        <td style="font-size:11.5px;color:var(--text-muted)">${formatDate(c.created_at)}</td>
         <td onclick="event.stopPropagation()">
           <div style="display:flex;gap:6px">
             ${c.status === 'ACTIVE'
@@ -1343,6 +1358,7 @@ const debounceFilterCustomers = debounce(filterCustomers, 150);
 async function filterCustomers() {
   const search = document.getElementById('cust-search')?.value.trim() || '';
   const skin_type = document.getElementById('cust-skin')?.value || '';
+  const beauty_preference = document.getElementById('cust-pref')?.value || '';
   const status = document.getElementById('cust-status')?.value || '';
 
   const tbody = document.getElementById('customers-tbody');
@@ -1352,6 +1368,7 @@ async function filterCustomers() {
       const params = new URLSearchParams();
       if (search) params.append('search', search);
       if (skin_type) params.append('skin_type', skin_type);
+      if (beauty_preference) params.append('beauty_preference', beauty_preference);
       if (status) params.append('status', status);
       const customers = await api('GET', `/api/manager/customers?${params}`);
       currentCustomersList = customers || [];
@@ -1360,12 +1377,13 @@ async function filterCustomers() {
     } catch (e) { toast(e.message, 'error'); }
     return;
   }
-  fetchAndRenderCustomers({ search, skin_type, status });
+  fetchAndRenderCustomers({ search, skin_type, beauty_preference, status });
 }
 
 function resetCustomerFilters() {
   const s = document.getElementById('cust-search'); if (s) s.value = '';
   const sk = document.getElementById('cust-skin'); if (sk) sk.value = '';
+  const pr = document.getElementById('cust-pref'); if (pr) pr.value = '';
   const st = document.getElementById('cust-status'); if (st) st.value = '';
   filterCustomers();
 }
@@ -1588,7 +1606,7 @@ async function deleteCustomer(accountId, name, interactionCount) {
 // ========== MANAGER: SURVEYS ==========
 let currentManagerSurveysList = [];
 let managerSurveyPage = 1;
-const MANAGER_SURVEY_PAGE_SIZE = 5;
+const MANAGER_SURVEY_PAGE_SIZE = 10;
 
 async function renderManagerSurveys() {
   setPageHeader('📋 Chiến dịch Khảo sát', 'Tạo, quản lý, chỉnh sửa và theo dõi kết quả khảo sát thị hiếu',
@@ -3065,7 +3083,7 @@ function renderSurveyResultTabContent() {
 let allManagerFeedbacks = [];
 let currentManagerFeedbacksList = [];
 let managerFeedbackPage = 1;
-const MANAGER_FEEDBACK_PAGE_SIZE = 5;
+const MANAGER_FEEDBACK_PAGE_SIZE = 10;
 
 // Filters state
 let managerFeedbackTab = 'ALL'; // 'ALL', 'PENDING', 'NEGATIVE', 'NEUTRAL', 'POSITIVE', 'REPLIED'

@@ -242,19 +242,19 @@ GO
 
 -- Dữ liệu tài khoản
 INSERT INTO dbo.Accounts (username, password, full_name, email, phone, role, status) VALUES
-(N'admin',    N'$2a$10$5ju14buoP6cN7pAFSfJEPeE.karsWdiYX.nC8QSfvOQKgBE4T2KwO', N'Nguyễn Văn Admin',   N'admin@beautycrm.vn',      N'0901000001', 'ADMIN',    'ACTIVE'),
-(N'manager1', N'$2a$10$nViHBYnT3PSjEta04ldIfOwZd.lQJAhNjKV74AfA6qML6MxOjwbwy', N'Trần Thị Lan',       N'lan.tran@beautycrm.vn',   N'0902000001', 'MANAGER',  'ACTIVE'),
-(N'manager2', N'$2a$10$nViHBYnT3PSjEta04ldIfOwZd.lQJAhNjKV74AfA6qML6MxOjwbwy', N'Lê Minh Hương',      N'huong.le@beautycrm.vn',   N'0902000002', 'MANAGER',  'ACTIVE'),
-(N'khach001', N'$2a$10$DsEPhB8CwR/wJ5oULYSzwescBVlyVdFR3OZOIqbc6FmxzkEm2RPrG', N'Nguyễn Thị Mai',    N'mai.nguyen@gmail.com',    N'0903000001', 'CUSTOMER', 'ACTIVE'),
-(N'khach002', N'$2a$10$DsEPhB8CwR/wJ5oULYSzwescBVlyVdFR3OZOIqbc6FmxzkEm2RPrG', N'Phạm Thu Hà',       N'ha.pham@gmail.com',       N'0903000002', 'CUSTOMER', 'ACTIVE'),
-(N'khach003', N'$2a$10$DsEPhB8CwR/wJ5oULYSzwescBVlyVdFR3OZOIqbc6FmxzkEm2RPrG', N'Hoàng Thị Linh',    N'linh.hoang@gmail.com',    N'0903000003', 'CUSTOMER', 'ACTIVE'),
-(N'khach004', N'$2a$10$DsEPhB8CwR/wJ5oULYSzwescBVlyVdFR3OZOIqbc6FmxzkEm2RPrG', N'Đặng Thị Phương',   N'phuong.dang@gmail.com',   N'0903000004', 'CUSTOMER', 'ACTIVE'),
-(N'khach005', N'$2a$10$DsEPhB8CwR/wJ5oULYSzwescBVlyVdFR3OZOIqbc6FmxzkEm2RPrG', N'Vũ Thị Nga',        N'nga.vu@gmail.com',        N'0903000005', 'CUSTOMER', 'ACTIVE'),
-(N'khach006', N'$2a$10$DsEPhB8CwR/wJ5oULYSzwescBVlyVdFR3OZOIqbc6FmxzkEm2RPrG', N'Bùi Thị Thảo',      N'thao.bui@gmail.com',      N'0903000006', 'CUSTOMER', 'LOCKED'),
-(N'khach007', N'$2a$10$DsEPhB8CwR/wJ5oULYSzwescBVlyVdFR3OZOIqbc6FmxzkEm2RPrG', N'Lý Thị Kim',        N'kim.ly@gmail.com',        N'0903000007', 'CUSTOMER', 'ACTIVE'),
-(N'khach008', N'$2a$10$DsEPhB8CwR/wJ5oULYSzwescBVlyVdFR3OZOIqbc6FmxzkEm2RPrG', N'Trịnh Thị Loan',    N'loan.trinh@gmail.com',    N'0903000008', 'CUSTOMER', 'ACTIVE'),
-(N'khach009', N'$2a$10$DsEPhB8CwR/wJ5oULYSzwescBVlyVdFR3OZOIqbc6FmxzkEm2RPrG', N'Đinh Văn Nam',      N'nam.dinh@gmail.com',      N'0903000009', 'CUSTOMER', 'ACTIVE'),
-(N'khach010', N'$2a$10$DsEPhB8CwR/wJ5oULYSzwescBVlyVdFR3OZOIqbc6FmxzkEm2RPrG', N'Cao Thị Yến',       N'yen.cao@gmail.com',       N'0903000010', 'CUSTOMER', 'ACTIVE');
+(N'admin',    N'admin123',   N'Nguyễn Văn Admin',   N'admin@beautycrm.vn',      N'0901000001', 'ADMIN',    'ACTIVE'),
+(N'manager1', N'manager123', N'Trần Thị Lan',       N'lan.tran@beautycrm.vn',   N'0902000001', 'MANAGER',  'ACTIVE'),
+(N'manager2', N'manager123', N'Lê Minh Hương',      N'huong.le@beautycrm.vn',   N'0902000002', 'MANAGER',  'ACTIVE'),
+(N'khach001', N'123456',     N'Nguyễn Thị Mai',    N'mai.nguyen@gmail.com',    N'0903000001', 'CUSTOMER', 'ACTIVE'),
+(N'khach002', N'123456',     N'Phạm Thu Hà',       N'ha.pham@gmail.com',       N'0903000002', 'CUSTOMER', 'ACTIVE'),
+(N'khach003', N'123456',     N'Hoàng Thị Linh',    N'linh.hoang@gmail.com',    N'0903000003', 'CUSTOMER', 'ACTIVE'),
+(N'khach004', N'123456',     N'Đặng Thị Phương',   N'phuong.dang@gmail.com',   N'0903000004', 'CUSTOMER', 'ACTIVE'),
+(N'khach005', N'123456',     N'Vũ Thị Nga',        N'nga.vu@gmail.com',        N'0903000005', 'CUSTOMER', 'ACTIVE'),
+(N'khach006', N'123456',     N'Bùi Thị Thảo',      N'thao.bui@gmail.com',      N'0903000006', 'CUSTOMER', 'LOCKED'),
+(N'khach007', N'123456',     N'Lý Thị Kim',        N'kim.ly@gmail.com',        N'0903000007', 'CUSTOMER', 'ACTIVE'),
+(N'khach008', N'123456',     N'Trịnh Thị Loan',    N'loan.trinh@gmail.com',    N'0903000008', 'CUSTOMER', 'ACTIVE'),
+(N'khach009', N'123456',     N'Đinh Văn Nam',      N'nam.dinh@gmail.com',      N'0903000009', 'CUSTOMER', 'ACTIVE'),
+(N'khach010', N'123456',     N'Cao Thị Yến',       N'yen.cao@gmail.com',       N'0903000010', 'CUSTOMER', 'ACTIVE');
 GO
 
 -- Dữ liệu khách hàng (hồ sơ làm đẹp)

@@ -24,6 +24,9 @@ function openEditAccountModalById(id) {
 
 const debounceFilterAccounts = debounce(filterAccounts, 150);
 
+let adminAccountPage = 1;
+const ADMIN_ACCOUNT_PAGE_SIZE = 10;
+
 function renderAccountRowsHtml(accounts) {
   const currentUserId = state?.user?.id ? Number(state.user.id) : null;
   const totalAdmins = allAccountsList.length
@@ -31,7 +34,7 @@ function renderAccountRowsHtml(accounts) {
     : accounts.filter(x => x.role === 'ADMIN').length;
 
   if (accounts.length === 0) {
-    return `<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:40px">Không tìm thấy tài khoản nào</td></tr>`;
+    return `<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:40px">Không tìm thấy tài khoản nào</td></tr>`;
   }
 
   return accounts.map(a => {
@@ -44,20 +47,34 @@ function renderAccountRowsHtml(accounts) {
     } else if (isCurrentUser) {
       deleteBtnHtml = `<button class="btn btn-trash btn-sm" title="Xóa tài khoản hiện tại (Bạn sẽ bị đăng xuất)" onclick="deleteAccount(${a.id},'${a.full_name.replace(/'/g, "\\'")}')"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>`;
     } else {
-      deleteBtnHtml = `<button class="btn btn-trash btn-sm" onclick="deleteAccount(${a.id},'${a.full_name.replace(/'/g, "\\'")}')"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>`;
+      deleteBtnHtml = `<button class="btn btn-trash btn-sm" title="Xóa tài khoản" onclick="deleteAccount(${a.id},'${a.full_name.replace(/'/g, "\\'")}')"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>`;
+    }
+
+    let lockBtnHtml = '';
+    if (isCurrentUser) {
+      lockBtnHtml = `<button class="btn btn-sm" style="background:#64748b;color:#fff;border:none;opacity:0.4;cursor:not-allowed;" disabled title="Không thể tự khóa tài khoản của chính bạn">🔒</button>`;
+    } else if (isOnlyAdmin && a.status === 'ACTIVE') {
+      lockBtnHtml = `<button class="btn btn-sm" style="background:#64748b;color:#fff;border:none;opacity:0.4;cursor:not-allowed;" disabled title="Không thể khóa tài khoản Admin duy nhất trong hệ thống">🔒</button>`;
+    } else if (a.status === 'ACTIVE') {
+      lockBtnHtml = `<button class="btn btn-sm" style="background:#214e34;color:#fff;border:none;padding:4px 8px;" onclick="toggleAdminAccountStatus(${a.id},'LOCKED','${a.full_name.replace(/'/g, "\\'")}')" title="Khóa tài khoản">🔒</button>`;
+    } else {
+      lockBtnHtml = `<button class="btn btn-sm" style="background:#214e34;color:#fff;border:none;padding:4px 8px;" onclick="toggleAdminAccountStatus(${a.id},'ACTIVE','${a.full_name.replace(/'/g, "\\'")}')" title="Mở khóa tài khoản">🔓</button>`;
     }
 
     return `
       <tr class="row-clickable" title="💡 Nhấp đúp (Double-click) để xem và sửa thông tin" ondblclick="openEditAccountModalById(${a.id})">
         <td><span style="color:var(--text-muted)">#${a.id}</span></td>
-        <td><strong>${a.full_name}</strong>${isCurrentUser ? ' <span style="font-size:10px;color:var(--text-muted)">(bạn)</span>' : ''}</td>
-        <td style="color:var(--text-secondary)">${a.email || '—'}</td>
-        <td style="color:var(--text-secondary)">${a.phone || '—'}</td>
+        <td><strong style="color:var(--rose-400,#214e34);font-family:monospace;font-size:13px">@${escapeHtml(a.username || '')}</strong></td>
+        <td><strong>${escapeHtml(a.full_name)}</strong>${isCurrentUser ? ' <span style="font-size:10px;color:var(--text-muted)">(Bạn)</span>' : ''}</td>
+        <td style="color:var(--text-secondary)">${escapeHtml(a.email || '—')}</td>
+        <td style="color:var(--text-secondary)">${escapeHtml(a.phone || '—')}</td>
         <td>${roleBadge(a.role)}</td>
         <td>${statusBadge(a.status)}</td>
         <td style="color:var(--text-muted);font-size:12px">${formatDate(a.created_at)}</td>
         <td onclick="event.stopPropagation()">
-          <div style="display:flex;gap:6px">
+          <div style="display:flex;gap:6px;align-items:center">
+            <button class="btn btn-warning btn-sm" onclick="openEditAccountModalById(${a.id})" title="Chỉnh sửa tài khoản">✏️ Sửa</button>
+            ${lockBtnHtml}
             ${deleteBtnHtml}
           </div>
         </td>
@@ -66,16 +83,38 @@ function renderAccountRowsHtml(accounts) {
   }).join('');
 }
 
-function renderAccountsTable(accounts, searchParams = {}) {
-  currentAccountsList = accounts;
+function renderAccountTablePage(page = 1) {
+  const total = currentAccountsList.length;
+  const maxPage = Math.max(1, Math.ceil(total / ADMIN_ACCOUNT_PAGE_SIZE));
+  if (page > maxPage) page = maxPage;
+  adminAccountPage = page;
+
+  const start = (adminAccountPage - 1) * ADMIN_ACCOUNT_PAGE_SIZE;
+  const pagedList = currentAccountsList.slice(start, start + ADMIN_ACCOUNT_PAGE_SIZE);
 
   const tbody = document.getElementById('accounts-tbody');
   const countEl = document.getElementById('accounts-count');
-  if (tbody && countEl) {
-    tbody.innerHTML = renderAccountRowsHtml(accounts);
-    countEl.textContent = `Tổng: ${accounts.length} tài khoản · 💡 Nhấp đúp (Double-click) vào một dòng để xem và sửa thông tin`;
-    return;
+  const paginationEl = document.getElementById('accounts-pagination');
+
+  if (tbody) {
+    tbody.innerHTML = renderAccountRowsHtml(pagedList);
   }
+  if (countEl) {
+    countEl.textContent = `Tổng: ${total} tài khoản · 💡 Nhấp đúp (Double-click) vào một dòng để xem và sửa thông tin`;
+  }
+  if (paginationEl) {
+    paginationEl.innerHTML = renderPaginationBar({
+      totalItems: total,
+      pageSize: ADMIN_ACCOUNT_PAGE_SIZE,
+      currentPage: adminAccountPage,
+      onPageChangeFnName: 'renderAccountTablePage'
+    });
+  }
+}
+
+function renderAccountsTable(accounts, searchParams = {}) {
+  currentAccountsList = accounts;
+  adminAccountPage = 1;
 
   const html = `
     <div class="filter-bar">
@@ -96,17 +135,30 @@ function renderAccountsTable(accounts, searchParams = {}) {
     <div class="table-wrapper">
       <table>
         <thead><tr>
-          <th>ID</th><th>Họ và tên</th><th>Email</th><th>Số ĐT</th>
+          <th>ID</th><th>USERNAME</th><th>Họ và tên</th><th>Email</th><th>Số ĐT</th>
           <th>Vai trò</th><th>Trạng thái</th><th>Ngày tạo</th><th>Hành động</th>
         </tr></thead>
-        <tbody id="accounts-tbody">
-          ${renderAccountRowsHtml(accounts)}
-        </tbody>
+        <tbody id="accounts-tbody"></tbody>
       </table>
     </div>
-    <p id="accounts-count" style="color:var(--text-muted);font-size:12px;margin-top:10px">Tổng: ${accounts.length} tài khoản · 💡 Nhấp đúp (Double-click) vào một dòng để xem và sửa thông tin</p>
+    <div id="accounts-pagination" style="margin-top:16px"></div>
+    <p id="accounts-count" style="color:var(--text-muted);font-size:12px;margin-top:10px"></p>
   `;
   setPageContent(html);
+  renderAccountTablePage(1);
+}
+
+async function toggleAdminAccountStatus(id, newStatus, name) {
+  const action = newStatus === 'LOCKED' ? 'khóa' : 'mở khóa';
+  if (!confirm(`Xác nhận ${action} tài khoản nội bộ của "${name}"?`)) return;
+  try {
+    await api('PUT', `/api/admin/accounts/${id}/status`, { status: newStatus });
+    toast(newStatus === 'LOCKED' ? `Đã khóa tài khoản "${name}"` : `Đã mở khóa tài khoản "${name}"`, 'success');
+    const accounts = await api('GET', '/api/admin/accounts');
+    allAccountsList = accounts;
+    currentAccountsList = accounts;
+    renderAccountTablePage(adminAccountPage);
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 function resetAdminAccountsFilters() {
@@ -187,9 +239,9 @@ function openEditAccountModal(a) {
     <div class="form-row">
       <div class="form-group"><label>Tên đăng nhập *</label><input id="e-username" value="${escapeHtml(a.username || '')}" autocomplete="off"></div>
       <div class="form-group">
-        <label>Mật khẩu * <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(đang hiển thị)</span></label>
+        <label>Mật khẩu *</label>
         <div style="display:flex;gap:6px">
-          <input id="e-password" type="text" value="${escapeHtml(a.password || '')}" autocomplete="off" placeholder="Mật khẩu" style="flex:1">
+          <input id="e-password" type="password" value="${escapeHtml(a.password || '')}" autocomplete="off" placeholder="Mật khẩu *" style="flex:1">
           <button type="button" class="btn btn-secondary btn-sm" onclick="toggleInputVisibility('e-password', this)" title="Ẩn/Hiện mật khẩu">👁️</button>
         </div>
       </div>
@@ -339,6 +391,33 @@ function renderProductRowsHtml(products) {
   `).join('');
 }
 
+const ADMIN_PRODUCT_PAGE_SIZE = 10;
+let adminProductPage = 1;
+
+function renderProductPage(page) {
+  adminProductPage = page;
+  const tbody = document.getElementById('products-tbody');
+  const paginationEl = document.getElementById('products-pagination');
+  if (!tbody) return;
+
+  const total = currentProductsList.length;
+  const maxPage = Math.max(1, Math.ceil(total / ADMIN_PRODUCT_PAGE_SIZE));
+  if (adminProductPage > maxPage) adminProductPage = maxPage;
+  const start = (adminProductPage - 1) * ADMIN_PRODUCT_PAGE_SIZE;
+  const pagedList = currentProductsList.slice(start, start + ADMIN_PRODUCT_PAGE_SIZE);
+
+  tbody.innerHTML = renderProductRowsHtml(pagedList);
+
+  if (paginationEl) {
+    paginationEl.innerHTML = renderPaginationBar({
+      totalItems: total,
+      pageSize: ADMIN_PRODUCT_PAGE_SIZE,
+      currentPage: adminProductPage,
+      onPageChangeFnName: 'renderProductPage'
+    });
+  }
+}
+
 const debounceProductFilters = debounce(applyProductFilters, 150);
 
 async function fetchAndRenderProducts(filters = {}) {
@@ -348,7 +427,7 @@ async function fetchAndRenderProducts(filters = {}) {
     Object.entries(filters).forEach(([k, v]) => { if (v) params.append(k, v); });
     const products = await api('GET', `/api/admin/products?${params}`);
     const suppliers = await api('GET', '/api/admin/suppliers');
-    currentProductsList = products;
+    currentProductsList = products || [];
 
     const supplierOptions = suppliers.map(s => {
       const isInactive = s.status === 'INACTIVE';
@@ -392,14 +471,13 @@ async function fetchAndRenderProducts(filters = {}) {
             <th>ID</th><th>Sản phẩm</th><th>Danh mục</th><th>Nhà cung cấp</th>
             <th>Giá</th><th>Trạng thái kinh doanh</th><th>Ngày tạo</th><th>Hành động</th>
           </tr></thead>
-          <tbody id="products-tbody">
-            ${renderProductRowsHtml(products)}
-          </tbody>
+          <tbody id="products-tbody"></tbody>
         </table>
       </div>
-      <p id="products-count" style="color:var(--text-muted);font-size:12px;margin-top:10px">Hiển thị ${products.length} sản phẩm</p>
+      <div id="products-pagination"></div>
     `;
     setPageContent(html);
+    renderProductPage(1);
   } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -417,15 +495,13 @@ async function applyProductFilters() {
   productFilters = filters;
 
   const tbody = document.getElementById('products-tbody');
-  const countEl = document.getElementById('products-count');
-  if (tbody && countEl) {
+  if (tbody) {
     try {
       const params = new URLSearchParams();
       Object.entries(filters).forEach(([k, v]) => { if (v) params.append(k, v); });
       const products = await api('GET', `/api/admin/products?${params}`);
-      currentProductsList = products;
-      tbody.innerHTML = renderProductRowsHtml(products);
-      countEl.textContent = `Hiển thị ${products.length} sản phẩm`;
+      currentProductsList = products || [];
+      renderProductPage(1);
     } catch (e) { toast(e.message, 'error'); }
     return;
   }
@@ -670,14 +746,39 @@ function renderSupplierRowsHtml(suppliers) {
   }).join('');
 }
 
+const ADMIN_SUPPLIER_PAGE_SIZE = 10;
+let adminSupplierPage = 1;
+
+function renderSupplierPage(page) {
+  adminSupplierPage = page;
+  const tbody = document.getElementById('suppliers-tbody');
+  const paginationEl = document.getElementById('suppliers-pagination');
+  if (!tbody) return;
+
+  const total = currentSuppliersList.length;
+  const maxPage = Math.max(1, Math.ceil(total / ADMIN_SUPPLIER_PAGE_SIZE));
+  if (adminSupplierPage > maxPage) adminSupplierPage = maxPage;
+  const start = (adminSupplierPage - 1) * ADMIN_SUPPLIER_PAGE_SIZE;
+  const pagedList = currentSuppliersList.slice(start, start + ADMIN_SUPPLIER_PAGE_SIZE);
+
+  tbody.innerHTML = renderSupplierRowsHtml(pagedList);
+
+  if (paginationEl) {
+    paginationEl.innerHTML = renderPaginationBar({
+      totalItems: total,
+      pageSize: ADMIN_SUPPLIER_PAGE_SIZE,
+      currentPage: adminSupplierPage,
+      onPageChangeFnName: 'renderSupplierPage'
+    });
+  }
+}
+
 function renderSuppliersTable(suppliers) {
-  currentSuppliersList = suppliers;
+  currentSuppliersList = suppliers || [];
 
   const tbody = document.getElementById('suppliers-tbody');
-  const countEl = document.getElementById('suppliers-count');
-  if (tbody && countEl) {
-    tbody.innerHTML = renderSupplierRowsHtml(suppliers);
-    countEl.textContent = `Hiển thị ${suppliers.length} nhà cung cấp đối tác`;
+  if (tbody) {
+    renderSupplierPage(1);
     return;
   }
 
@@ -706,14 +807,13 @@ function renderSuppliersTable(suppliers) {
             <th>Hành động</th>
           </tr>
         </thead>
-        <tbody id="suppliers-tbody">
-          ${renderSupplierRowsHtml(suppliers)}
-        </tbody>
+        <tbody id="suppliers-tbody"></tbody>
       </table>
     </div>
-    <p id="suppliers-count" style="color:var(--text-muted);font-size:12px;margin-top:10px">Hiển thị ${suppliers.length} nhà cung cấp đối tác</p>
+    <div id="suppliers-pagination"></div>
   `;
   setPageContent(html);
+  renderSupplierPage(1);
 }
 
 function resetSupplierFilters() {
@@ -730,7 +830,8 @@ async function filterSuppliers() {
   if (status) params.append('status', status);
   try {
     const suppliers = await api('GET', `/api/admin/suppliers?${params}`);
-    renderSuppliersTable(suppliers);
+    currentSuppliersList = suppliers || [];
+    renderSupplierPage(1);
   } catch (e) { toast(e.message, 'error'); }
 }
 

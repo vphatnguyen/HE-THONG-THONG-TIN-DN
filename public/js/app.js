@@ -357,27 +357,23 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ========== SHARED PAGINATION UTILITY ==========
-function renderPaginationBar({ totalItems, pageSize = 5, currentPage = 1, onPageChangeFnName }) {
-  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
-  if (totalItems <= pageSize) {
-    return `
-      <div class="pagination-container">
-        <span class="pagination-info">Hiển thị <strong>${totalItems}</strong> / <strong>${totalItems}</strong> bản ghi</span>
-      </div>
-    `;
-  }
+function renderPaginationBar({ totalItems, pageSize = 10, currentPage = 1, onPageChangeFnName }) {
+  const total = Number(totalItems) || 0;
+  const size = Number(pageSize) || 10;
+  const totalPages = Math.max(1, Math.ceil(total / size));
+  const page = Math.min(Math.max(1, Number(currentPage) || 1), totalPages);
 
-  const startItem = (currentPage - 1) * pageSize + 1;
-  const endItem = Math.min(currentPage * pageSize, totalItems);
+  const startItem = total === 0 ? 0 : (page - 1) * size + 1;
+  const endItem = Math.min(page * size, total);
 
   let pageButtonsHtml = '';
   for (let i = 1; i <= totalPages; i++) {
-    if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
+    if (i === 1 || i === totalPages || (i >= page - 2 && i <= page + 2)) {
       pageButtonsHtml += `
-        <button class="pagination-btn ${i === currentPage ? 'active' : ''}"
+        <button type="button" class="pagination-btn ${i === page ? 'active' : ''}"
                 onclick="${onPageChangeFnName}(${i})">${i}</button>
       `;
-    } else if (i === currentPage - 3 || i === currentPage + 3) {
+    } else if (i === page - 3 || i === page + 3) {
       pageButtonsHtml += `<span style="padding:0 4px;color:var(--text-muted);user-select:none">...</span>`;
     }
   }
@@ -385,17 +381,17 @@ function renderPaginationBar({ totalItems, pageSize = 5, currentPage = 1, onPage
   return `
     <div class="pagination-container">
       <div class="pagination-info">
-        Hiển thị <strong>${startItem} - ${endItem}</strong> trong tổng số <strong>${totalItems}</strong> (5 dòng/trang)
+        Hiển thị <strong>${startItem} - ${endItem}</strong> trong tổng số <strong>${total}</strong> (${size} dòng/trang)
       </div>
       <div class="pagination-controls">
-        <button class="pagination-btn" ${currentPage === 1 ? 'disabled' : ''}
+        <button type="button" class="pagination-btn" ${page <= 1 ? 'disabled' : ''}
                 onclick="${onPageChangeFnName}(1)" title="Trang đầu">«</button>
-        <button class="pagination-btn" ${currentPage === 1 ? 'disabled' : ''}
-                onclick="${onPageChangeFnName}(${currentPage - 1})" title="Trang trước">‹</button>
+        <button type="button" class="pagination-btn" ${page <= 1 ? 'disabled' : ''}
+                onclick="${onPageChangeFnName}(${page - 1})" title="Trang trước">‹</button>
         ${pageButtonsHtml}
-        <button class="pagination-btn" ${currentPage === totalPages ? 'disabled' : ''}
-                onclick="${onPageChangeFnName}(${currentPage + 1})" title="Trang sau">›</button>
-        <button class="pagination-btn" ${currentPage === totalPages ? 'disabled' : ''}
+        <button type="button" class="pagination-btn" ${page >= totalPages ? 'disabled' : ''}
+                onclick="${onPageChangeFnName}(${page + 1})" title="Trang sau">›</button>
+        <button type="button" class="pagination-btn" ${page >= totalPages ? 'disabled' : ''}
                 onclick="${onPageChangeFnName}(${totalPages})" title="Trang cuối">»</button>
       </div>
     </div>

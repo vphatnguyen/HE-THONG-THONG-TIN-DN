@@ -719,6 +719,22 @@ textarea {
   box-shadow: 0 0 12px rgba(0, 0, 0, 0.2);
 }
 
+.customer-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(33, 78, 52, 0.12);
+  color: #214e34;
+  border: 1.5px solid rgba(33, 78, 52, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(33, 78, 52, 0.15);
+}
+
 .user-name {
   font-size: 13px;
   font-weight: 600;
@@ -2315,17 +2331,17 @@ tbody tr.row-clickable:hover {
 }
 
 .pagination-btn:hover:not(:disabled) {
-  border-color: var(--rose-500);
-  color: #ffffff;
-  background: rgba(244, 63, 94, 0.1);
+  border-color: #214e34;
+  color: #214e34;
+  background: rgba(33, 78, 52, 0.08);
 }
 
 .pagination-btn.active {
-  background: var(--grad-rose);
-  border-color: var(--rose-500);
-  color: #ffffff;
+  background: #214e34 !important;
+  border-color: #214e34 !important;
+  color: #ffffff !important;
   font-weight: 700;
-  box-shadow: 0 2px 8px rgba(244, 63, 94, 0.35);
+  box-shadow: 0 2px 8px rgba(33, 78, 52, 0.35);
 }
 
 .pagination-btn:disabled {
@@ -2366,4 +2382,164 @@ tbody tr.row-clickable:hover {
   font-weight: normal;
   margin-left: 6px;
 }
+
+/* Quick Filter Pills */
+.filter-pill {
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.filter-pill:hover {
+  border-color: #214e34;
+  color: #214e34;
+  background: rgba(33, 78, 52, 0.08);
+}
+
+.filter-pill.active {
+  background: #214e34 !important;
+  border-color: #214e34 !important;
+  color: #ffffff !important;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(33, 78, 52, 0.35);
+}
+
+/* ============================================================
+   HASAKI REVIEW SYSTEM STYLES
+   ============================================================ */
+.hasaki-overview-box {
+  background: rgba(248, 250, 252, 0.7);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: 160px 1fr 210px;
+  gap: 18px;
+  align-items: center;
+}
+
+@media (max-width: 768px) {
+  .hasaki-overview-box {
+    grid-template-columns: 1fr;
+    gap: 16px;
+    text-align: center;
+  }
+}
+
+.hasaki-pill {
+  padding: 6px 13px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  user-select: none;
+}
+
+.hasaki-pill:hover {
+  border-color: #e85a2a;
+  color: #e85a2a;
+  background: rgba(232, 90, 42, 0.06);
+}
+
+.hasaki-pill.active {
+  background: #e85a2a !important;
+  border-color: #e85a2a !important;
+  color: #ffffff !important;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(232, 90, 42, 0.35);
+}
+
+.hasaki-btn-write {
+  background: #e85a2a;
+  color: #ffffff;
+  border: 1px solid #e85a2a;
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 3px 10px rgba(232, 90, 42, 0.3);
+}
+
+.hasaki-btn-write:hover {
+  background: #cf4819;
+  border-color: #cf4819;
+  transform: translateY(-1px);
+}
+
+.hasaki-review-card {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hasaki-review-card:last-child {
+  border-bottom: none;
+}
+
+.hasaki-star-badge {
+  background: #ff6600;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.hasaki-verified-badge {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.hasaki-cskh-box {
+  margin-left: 20px;
+  margin-top: 10px;
+  padding: 12px 16px;
+  background: rgba(33, 78, 52, 0.06);
+  border-left: 3px solid #214e34;
+  border-radius: 6px;
+}
+
+.hasaki-cskh-tag {
+  background: #214e34;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+}
+
 
