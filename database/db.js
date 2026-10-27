@@ -27,7 +27,12 @@ function normalizeParams(args) {
 }
 
 function rowsFrom(result) {
-  return Array.isArray(result?.first) ? result.first : [];
+  return (Array.isArray(result?.first) ? result.first : []).map(row => {
+    if (row.record_version && typeof row.record_version !== 'string') {
+      return { ...row, record_version: Buffer.from(row.record_version).toString('hex') };
+    }
+    return row;
+  });
 }
 
 function createPrepared(executor, sqlQuery) {

@@ -6,6 +6,8 @@ const path = require('path');
 const db = require('./database/db');
 
 const app = express();
+const PRODUCT_FIELDS = 'p.id,p.record_version,p.name,p.category,p.supplier_id,p.price,p.description,p.image_url,p.launch_status,p.created_at';
+const CUSTOMER_FIELDS = 'id,account_id,age,gender,skin_type,beauty_preferences,created_at';
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'cosmetics_crm_secret_2026';
 const BEAUTY_PREFERENCES = new Set(['Trang điểm', 'Chăm sóc da (Skincare)', 'Chống lão hóa', 'Trị mụn', 'Dưỡng ẩm', 'Organic']);
@@ -59,6 +61,7 @@ function normalizeSurveyPayload(payload, { allowStatus = false } = {}) {
         throw validationError(`Các lựa chọn của câu hỏi ${index + 1} không được trùng lặp`);
       }
     }
+    if (question?.is_required !== undefined && ![true,false,0,1].includes(question.is_required)) throw validationError('Cờ bắt buộc phải là boolean');
     const isRequired = question?.is_required !== undefined ? (Boolean(question.is_required) ? 1 : 0) : 1;
     return { question_text: questionText, question_type: questionType, options, is_required: isRequired };
   });
@@ -68,8 +71,8 @@ function normalizeSurveyPayload(payload, { allowStatus = false } = {}) {
   const startDate = payload.start_date || null;
   const endDate = payload.end_date || null;
   const datePattern = /^\d{4}-\d{2}-\d{2}$/;
-  if (startDate && (!datePattern.test(startDate) || isNaN(Date.parse(`${startDate}T00:00:00Z`)))) throw validationError('Ngày bắt đầu không hợp lệ');
-  if (endDate && (!datePattern.test(endDate) || isNaN(Date.parse(`${endDate}T00:00:00Z`)))) throw validationError('Ngày kết thúc không hợp lệ');
+  if (startDate && (!datePattern.test(startDate) || !isCalendarDate(startDate))) throw validationError('Ngày bắt đầu không hợp lệ');
+  if (endDate && (!datePattern.test(endDate) || !isCalendarDate(endDate))) throw validationError('Ngày kết thúc không hợp lệ');
   if (startDate && endDate && startDate > endDate) throw validationError('Ngày kết thúc phải bằng hoặc sau ngày bắt đầu');
 
   const recipientIds = Array.isArray(payload.recipient_customer_ids)
@@ -107,6 +110,9 @@ async function validateSurveyReferences(payload) {
 }
 
 function sendKnownError(res, error, fallbackPrefix) {
+  if (isUniqueConstraintError(error)) return res.status(409).json({ error: 'Dữ liệu đã tồn tại (tên đăng nhập, email hoặc bản ghi trùng)' });
+  if (Number(error?.number ?? error?.code) === 547) return res.status(409).json({ error: 'Dữ liệu đang được sử dụng bởi bản ghi liên quan. Vui lòng tải lại.' });
+  if (Number(error?.number ?? error?.code) === 1205) return res.status(409).json({ error: 'Dữ liệu đang được cập nhật. Vui lòng tải lại và thử lại.' });
   if (error.status) return res.status(error.status).json({ error: error.message });
   return res.status(500).json({ error: fallbackPrefix ? `${fallbackPrefix}: ${error.message}` : error.message });
 }
@@ -116,10 +122,30 @@ function isUniqueConstraintError(error) {
   return code === 2601 || code === 2627;
 }
 
+function isCalendarDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && Number(value.slice(0,4)) >= 1753 &&
+    !isNaN(Date.parse(value + 'T00:00:00Z')) && new Date(value + 'T00:00:00Z').toISOString().slice(0,10) === value;
+}
+
+function validateAccountPayload(body, creating = false) {
+  for (const [key, limit] of [['username',50], ['full_name',100], ['email',100], ['phone',20]]) {
+    if (body[key] !== undefined) body[key] = String(body[key] ?? '').trim();
+    if ((creating || body[key] !== undefined) && ['username','full_name'].includes(key) && !body[key]) throw validationError('Tên đăng nhập và họ tên không được để trống');
+    if (body[key]?.length > limit) throw validationError(`${key} vượt quá ${limit} ký tự`);
+  }
+  if (body.password !== undefined && String(body.password).length>255) throw validationError('Mật khẩu không được vượt quá 255 ký tự');
+  if (creating && !String(body.password || '').trim()) throw validationError('Mật khẩu là bắt buộc');
+  if (body.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)) throw validationError('Email không hợp lệ');
+  if (body.age !== undefined && body.age !== null && body.age !== '' && (!Number.isInteger(Number(body.age)) || Number(body.age) < 13 || Number(body.age) > 100)) throw validationError('Độ tuổi phải từ 13 đến 100');
+  if (body.gender && !['Nu','Nam','Khac'].includes(body.gender)) throw validationError('Giới tính không hợp lệ');
+  if (body.status !== undefined && !['ACTIVE','LOCKED'].includes(body.status)) throw validationError('Trạng thái tài khoản không hợp lệ');
+  if (body.role !== undefined && !['ADMIN','MANAGER'].includes(body.role)) throw validationError('Vai trò nội bộ không hợp lệ');
+}
+
 function validateDateRange(from, to) {
   const datePattern = /^\d{4}-\d{2}-\d{2}$/;
   for (const [label, value] of [['Từ ngày', from], ['Đến ngày', to]]) {
-    if (value && (!datePattern.test(value) || isNaN(Date.parse(`${value}T00:00:00Z`)))) {
+    if (value && (!datePattern.test(value) || !isCalendarDate(value))) {
       throw validationError(`${label} không hợp lệ`);
     }
   }
@@ -127,8 +153,61 @@ function validateDateRange(from, to) {
 }
 
 
+function listResponse(res, rows, query, { dateField='created_at', searchFields=['id'], statusField='status', sortFields=['id','created_at'] }={}) {
+  validateDateRange(query.from,query.to);
+  const search=String(query.search || '').trim();
+  const searchById=/^#?\d+$/.test(search);
+  const idField=searchFields.includes('customer_id')?'customer_id':'id';
+  const dateKey=value=>value instanceof Date ? `${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,'0')}-${String(value.getDate()).padStart(2,'0')}` : String(value || '').slice(0,10);
+  let result=rows.filter(row=> {
+    const date=dateKey(row[dateField]);
+    return (!query.from || date && date>=query.from) && (!query.to || date && date<=query.to) &&
+      (!query.status || row[statusField]===query.status) &&
+      (!search || (searchById ? Number(row[idField])===Number(search.replace(/^#/,'')) : searchFields.some(field=>String(row[field] ?? '').toLocaleLowerCase('vi').includes(search.replace(/^@/,'').toLocaleLowerCase('vi')))));
+  });
+  if (query.sort_by) {
+    if (!sortFields.includes(query.sort_by)) throw validationError('Cột sắp xếp không hợp lệ');
+    const field=query.sort_by, sign=query.sort_dir==='asc'?1:-1;
+    result.sort((a,b)=> (typeof a[field]==='number' ? a[field]-b[field] : String(a[field] || '').localeCompare(String(b[field] || ''),'vi',{numeric:true})) * sign || (a.id-b.id)*sign);
+  }
+  res.set('X-Total-Count',String(result.length));
+  if (query.page !== undefined || query.page_size !== undefined) {
+    const page=Number(query.page || 1), size=Number(query.page_size || 10);
+    if (!Number.isInteger(page)||page<1||!Number.isInteger(size)||size<1||size>100) throw validationError('Phân trang không hợp lệ (1–100 dòng/trang)');
+    result=result.slice((page-1)*size,page*size);
+  }
+  return res.json(result);
+}
+async function checkRecordVersion(tx, table, id, body) {
+  if (!['Accounts','Products','Suppliers','Surveys','Feedbacks'].includes(table)) throw new Error('Invalid version table');
+  const row=await tx.prepare(`SELECT record_version FROM ${table} WITH (UPDLOCK,HOLDLOCK) WHERE id=?`).get(id);
+  if (row && body._version !== undefined && body._version !== row.record_version) {
+    const error=new Error('Bản ghi đã thay đổi từ khi bạn mở form. Vui lòng tải lại chi tiết trước khi lưu.');error.status=409;throw error;
+  }
+}
+
+function validateCatalogPayload(body, product) {
+  if (body.name !== undefined) { body.name=String(body.name).trim(); if(!body.name || body.name.length>(product?200:150)) throw validationError('Tên không hợp lệ'); }
+  if (product) {
+    if (body.category !== undefined && (!String(body.category).trim() || String(body.category).length>50)) throw validationError('Danh mục không hợp lệ');
+    if (body.price !== undefined && (!Number.isFinite(Number(body.price)) || Number(body.price)<0)) throw validationError('Giá phải là số không âm');
+    if (body.launch_status !== undefined && !['OFFICIAL','UPCOMING'].includes(body.launch_status)) throw validationError('Trạng thái kinh doanh không hợp lệ');
+    if (body.supplier_id && (!Number.isInteger(Number(body.supplier_id)) || Number(body.supplier_id)<=0)) throw validationError('Nhà cung cấp không hợp lệ');
+  } else if (body.status !== undefined && !['ACTIVE','INACTIVE'].includes(body.status)) throw validationError('Trạng thái nhà cung cấp không hợp lệ');
+}
+
 app.use(express.json());
+for (const param of ['id','accountId','productId']) {
+  app.param(param,(req,res,next,value)=> {
+    if (!/^\d+$/.test(value) || Number(value)<1 || Number(value)>2147483647) return res.status(400).json({ error: 'ID phải là số nguyên dương hợp lệ' });
+    next();
+  });
+}
 app.use(express.static(path.join(__dirname, 'public')));
+app.get('/api/test/environment', (req,res,next) => {
+  if (process.env.CRM_TEST_MODE !== '1' || !/E2E_DB$/i.test(db.databaseName)) return next();
+  res.json({ database: db.databaseName, testMode: true });
+});
 app.get('/favicon.ico', (req, res) => res.status(204).end());
 
 // Đảm bảo CSDL được kết nối trước khi xử lý request
@@ -142,12 +221,14 @@ function ensureDb() {
         appSchemaReady = true;
       }
       return db;
-    });
+    }).catch(error => { dbInitPromise=null; throw error; });
   }
   return dbInitPromise;
 }
 
 async function ensureAppSchema() {
+  const fs = require('fs');
+  await db.prepare(fs.readFileSync(path.join(__dirname, 'database/migrations/20261028_crm_integrity.sql'), 'utf8')).run();
   await db.prepare(`
     IF OBJECT_ID('dbo.SurveyRecipients', 'U') IS NULL
     CREATE TABLE dbo.SurveyRecipients (
@@ -190,7 +271,7 @@ async function ensureAppSchema() {
       SET NOCOUNT ON;
       IF EXISTS (SELECT 1 FROM deleted WHERE role = 'ADMIN')
       BEGIN
-        IF (SELECT COUNT(*) FROM dbo.Accounts WHERE role = 'ADMIN') = 0
+        IF (SELECT COUNT(*) FROM dbo.Accounts WHERE role = 'ADMIN' AND status='ACTIVE') = 0
         BEGIN
           RAISERROR (N'Không thể xóa tài khoản Admin khi hệ thống chỉ có duy nhất 1 Admin.', 16, 1);
           ROLLBACK TRANSACTION;
@@ -310,15 +391,21 @@ app.get('/', (req, res) => {
 });
 
 // ========== MIDDLEWARE: Xác thực JWT ==========
-function authMiddleware(req, res, next) {
+async function authMiddleware(req, res, next) {
   const token = req.headers['authorization']?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Chưa đăng nhập' });
   try {
     req.user = jwt.verify(token, JWT_SECRET);
-    next();
   } catch {
-    res.status(401).json({ error: 'Token không hợp lệ' });
+    return res.status(401).json({ error: 'Token không hợp lệ' });
   }
+  try {
+    const account = await db.prepare('SELECT id, role, status FROM Accounts WHERE id = ?').get(req.user.id);
+    if (!account) return res.status(401).json({ error: 'Tài khoản không còn tồn tại' });
+    if (account.status !== 'ACTIVE') return res.status(403).json({ error: 'Tài khoản đã bị khóa' });
+    req.user.role = account.role;
+    next();
+  } catch (error) { sendKnownError(res, error); }
 }
 
 function requireRole(...roles) {
@@ -332,14 +419,11 @@ function verifyPassword(inputPassword, account) {
   if (!inputPassword || !account) return false;
   const storedPassword = account.password;
   if (!storedPassword) return false;
+  if (isBcryptHash(storedPassword)) return bcrypt.compareSync(String(inputPassword), String(storedPassword));
   // So sánh trực tiếp chuỗi mật khẩu bình thường (plain text)
   if (String(inputPassword) === String(storedPassword)) return true;
   // Hỗ trợ linh hoạt cả 123456 và customer123 cho tài khoản khách hàng
   if (account.role === 'CUSTOMER' && (inputPassword === '123456' || inputPassword === 'customer123') && (storedPassword === '123456' || storedPassword === 'customer123')) return true;
-  // Tương thích ngược với các mật khẩu còn lưu dạng bcrypt hash
-  if (/^\$2[aby]\$\d{2}\$/.test(String(storedPassword))) {
-    return bcrypt.compareSync(String(inputPassword), String(storedPassword));
-  }
   return false;
 }
 
@@ -347,9 +431,9 @@ function isBcryptHash(value) {
   return /^\$2[aby]\$\d{2}\$/.test(String(value || ''));
 }
 
-async function insertAccount(username, passwordVal, full_name, email, phone, role) {
+async function insertAccount(username, passwordVal, full_name, email, phone, role, database = db) {
   // Lưu mật khẩu dạng bình thường (plain text) theo yêu cầu hệ thống
-  return await db.prepare('INSERT INTO Accounts (username, password, full_name, email, phone, role) VALUES (?, ?, ?, ?, ?, ?)').run(username, String(passwordVal), full_name, email || null, phone || null, role);
+  return await database.prepare('INSERT INTO Accounts (username, password, full_name, email, phone, role) VALUES (?, ?, ?, ?, ?, ?)').run(username, String(passwordVal), full_name, email || null, phone || null, role);
 }
 
 // ========== AUTH ==========
@@ -363,7 +447,7 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(403).json({ error: 'Tài khoản đã bị khóa. Vui lòng liên hệ quản trị viên.' });
 
     const token = jwt.sign({ id: account.id, username: account.username, role: account.role, full_name: account.full_name }, JWT_SECRET, { expiresIn: '24h' });
-    const customer = account.role === 'CUSTOMER' ? await db.prepare('SELECT * FROM Customers WHERE account_id = ?').get(account.id) : null;
+    const customer = account.role === 'CUSTOMER' ? await db.prepare(`SELECT ${CUSTOMER_FIELDS} FROM Customers WHERE account_id = ?`).get(account.id) : null;
     res.json({ token, user: { id: account.id, username: account.username, full_name: account.full_name, email: account.email, phone: account.phone, role: account.role, status: account.status }, customer });
   } catch (err) {
     console.error('Login error:', err);
@@ -373,16 +457,19 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.post('/api/auth/register', async (req, res) => {
   try {
+    validateAccountPayload(req.body, req.method === 'POST');
     const { username, password, full_name, email, phone, age, gender, skin_type, beauty_preferences } = req.body;
     if (!username || !password || !full_name) return res.status(400).json({ error: 'Vui lòng điền đầy đủ thông tin' });
     const existing = await db.prepare('SELECT id FROM Accounts WHERE username = ?').get(username);
     if (existing) return res.status(409).json({ error: 'Tên đăng nhập đã tồn tại' });
-    const accountResult = await insertAccount(username, password, full_name, email, phone, 'CUSTOMER');
-    await db.prepare('INSERT INTO Customers (account_id, age, gender, skin_type, beauty_preferences) VALUES (?, ?, ?, ?, ?)').run(accountResult.lastInsertRowid, age || null, gender || null, skin_type || null, normalizeBeautyPreferences(beauty_preferences) || null);
+    await db.transaction(async tx => {
+    const accountResult = await insertAccount(username, password, full_name, email, phone, 'CUSTOMER', tx);
+    await tx.prepare('INSERT INTO Customers (account_id, age, gender, skin_type, beauty_preferences) VALUES (?, ?, ?, ?, ?)').run(accountResult.lastInsertRowid, age || null, gender || null, skin_type || null, normalizeBeautyPreferences(beauty_preferences) || null);
+    });
     res.status(201).json({ message: 'Đăng ký thành công! Vui lòng đăng nhập.' });
   } catch (err) {
     console.error('Register error:', err);
-    res.status(500).json({ error: 'Lỗi đăng ký: ' + err.message });
+    sendKnownError(res, err);
   }
 });
 
@@ -390,21 +477,22 @@ app.post('/api/auth/register', async (req, res) => {
 app.get('/api/admin/accounts', authMiddleware, requireRole('ADMIN'), async (req, res) => {
   try {
     const { search, role, status } = req.query;
-    let sql = "SELECT id, username, password, full_name, email, phone, role, status, created_at FROM Accounts WHERE role IN ('ADMIN', 'MANAGER')";
+    let sql = "SELECT id, record_version, username, password, full_name, email, phone, role, status, created_at FROM Accounts WHERE role IN ('ADMIN', 'MANAGER')";
     const params = [];
-    if (search) { sql += ' AND (full_name LIKE ? OR username LIKE ? OR email LIKE ?)'; const s = `%${search}%`; params.push(s, s, s); }
+    if (search) { sql += ' AND (full_name LIKE ? OR username LIKE ? OR email LIKE ? OR CAST(id AS NVARCHAR(20)) = ?)'; const s = `%${search}%`; params.push(s,s,s,String(search).replace(/^#/,'')); }
     if (role) { sql += ' AND role = ?'; params.push(role); }
     if (status) { sql += ' AND status = ?'; params.push(status); }
     sql += ' ORDER BY created_at DESC';
     const rows = await db.prepare(sql).all(...params);
-    res.json(rows);
+    listResponse(res,rows,req.query,{searchFields:['id','full_name','username','email'],sortFields:['id','full_name','created_at']});
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res,err);
   }
 });
 
 app.post('/api/admin/accounts', authMiddleware, requireRole('ADMIN'), async (req, res) => {
   try {
+    validateAccountPayload(req.body, req.method === 'POST');
     const { username, password, full_name, email, phone, role } = req.body;
     if (!username || !password || !full_name) return res.status(400).json({ error: 'Thiếu thông tin bắt buộc' });
     const targetRole = role === 'ADMIN' ? 'ADMIN' : 'MANAGER';
@@ -413,16 +501,19 @@ app.post('/api/admin/accounts', authMiddleware, requireRole('ADMIN'), async (req
     const result = await insertAccount(username, password, full_name, email, phone, targetRole);
     res.status(201).json({ message: 'Tạo tài khoản thành công', id: result.lastInsertRowid });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res, err);
   }
 });
 
 app.put('/api/admin/accounts/:id', authMiddleware, requireRole('ADMIN'), async (req, res) => {
   try {
+    validateAccountPayload(req.body, req.method === 'POST');
     const targetId = Number(req.params.id);
     const { username, password, full_name, email, phone, role, status } = req.body;
 
-    const targetAccount = await db.prepare('SELECT id, username, role, status FROM Accounts WHERE id = ?').get(targetId);
+    await db.transaction(async tx => {
+    await checkRecordVersion(tx,'Accounts',targetId,req.body);
+    const targetAccount = await tx.prepare('SELECT id, username, role, status FROM Accounts WHERE id = ?').get(targetId);
     if (!targetAccount) {
       return res.status(404).json({ error: 'Tài khoản không tồn tại' });
     }
@@ -432,14 +523,14 @@ app.put('/api/admin/accounts/:id', authMiddleware, requireRole('ADMIN'), async (
     }
 
     if (username && username !== targetAccount.username) {
-      const existing = await db.prepare('SELECT id FROM Accounts WHERE username = ? AND id != ?').get(username, targetId);
+      const existing = await tx.prepare('SELECT id FROM Accounts WHERE username = ? AND id != ?').get(username, targetId);
       if (existing) return res.status(409).json({ error: 'Tên đăng nhập đã tồn tại' });
     }
 
     // Nếu tài khoản đang là ADMIN, ngăn chặn việc hạ quyền hoặc khóa khi chỉ có duy nhất 1 ADMIN
     if (targetAccount.role === 'ADMIN') {
       if (role && role !== 'ADMIN') {
-        const adminCountRes = await db.prepare("SELECT COUNT(*) AS total FROM Accounts WHERE role = 'ADMIN'").get();
+        const adminCountRes = await tx.prepare("SELECT COUNT(*) AS total FROM Accounts WHERE role = 'ADMIN'").get();
         const totalAdmins = Number(adminCountRes?.total || 0);
         if (totalAdmins <= 1) {
           return res.status(400).json({ error: 'Không thể thay đổi vai trò tài khoản Admin khi hệ thống chỉ còn duy nhất 1 Admin' });
@@ -447,7 +538,7 @@ app.put('/api/admin/accounts/:id', authMiddleware, requireRole('ADMIN'), async (
       }
 
       if (status === 'LOCKED' && targetAccount.status === 'ACTIVE') {
-        const activeAdminRes = await db.prepare("SELECT COUNT(*) AS total FROM Accounts WHERE role = 'ADMIN' AND status = 'ACTIVE'").get();
+        const activeAdminRes = await tx.prepare("SELECT COUNT(*) AS total FROM Accounts WHERE role = 'ADMIN' AND status = 'ACTIVE'").get();
         const activeAdmins = Number(activeAdminRes?.total || 0);
         if (activeAdmins <= 1) {
           return res.status(400).json({ error: 'Không thể khóa tài khoản Admin khi hệ thống chỉ còn duy nhất 1 Admin đang hoạt động' });
@@ -467,11 +558,13 @@ app.put('/api/admin/accounts/:id', authMiddleware, requireRole('ADMIN'), async (
 
     if (updates.length > 0) {
       params.push(targetId);
-      await db.prepare(`UPDATE Accounts SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+      await tx.prepare(`UPDATE Accounts SET ${updates.join(', ')} WHERE id = ?`).run(...params);
     }
+    });
+    if (res.headersSent) return;
     res.json({ message: 'Cập nhật tài khoản thành công' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res, err);
   }
 });
 
@@ -506,68 +599,82 @@ app.put('/api/admin/accounts/:id/status', authMiddleware, requireRole('ADMIN'), 
 
 app.delete('/api/admin/accounts/:id', authMiddleware, requireRole('ADMIN'), async (req, res) => {
   try {
+    const result=await db.transaction(async tx => {
     const targetId = Number(req.params.id);
     if (!targetId) {
       return res.status(400).json({ error: 'ID tài khoản không hợp lệ' });
     }
 
-    const targetAccount = await db.prepare('SELECT id, username, role FROM Accounts WHERE id = ?').get(targetId);
+    const targetAccount = await tx.prepare("SELECT id, username, role, status FROM Accounts WHERE id = ? AND role IN ('ADMIN','MANAGER')").get(targetId);
     if (!targetAccount) {
       return res.status(404).json({ error: 'Tài khoản không tồn tại' });
     }
 
     // Chặn xóa tài khoản Admin nếu chỉ còn duy nhất 1 Admin trong hệ thống
     if (targetAccount.role === 'ADMIN') {
-      const adminCountRes = await db.prepare("SELECT COUNT(*) AS total FROM Accounts WHERE role = 'ADMIN'").get();
+      const adminCountRes = await tx.prepare("SELECT COUNT(*) AS total FROM Accounts WHERE role = 'ADMIN'").get();
       const totalAdmins = Number(adminCountRes?.total || 0);
       if (totalAdmins <= 1) {
         return res.status(400).json({ error: 'Không thể xóa tài khoản Admin khi hệ thống chỉ còn duy nhất 1 Admin' });
       }
     }
 
-    // Gỡ liên kết khóa ngoại nếu có (ví dụ khảo sát do Admin này tạo/gửi) trước khi xóa
-    await db.prepare('UPDATE Surveys SET created_by = NULL WHERE created_by = ?').run(targetId);
-    await db.prepare('UPDATE SurveyRecipients SET sent_by = NULL WHERE sent_by = ?').run(targetId);
+    if(targetAccount.role==='ADMIN' && targetAccount.status==='ACTIVE'){
+      const remaining=await tx.prepare("SELECT COUNT(*) AS n FROM Accounts WHERE role='ADMIN' AND status='ACTIVE' AND id<>?").get(targetId);
+      if(!remaining.n)return res.status(400).json({error:'Không thể xóa Admin đang hoạt động cuối cùng'});
+    }
 
-    await db.prepare('DELETE FROM Accounts WHERE id = ?').run(targetId);
-    res.json({ message: 'Đã xóa tài khoản' });
+    // Gỡ liên kết khóa ngoại nếu có (ví dụ khảo sát do Admin này tạo/gửi) trước khi xóa
+    await tx.prepare('UPDATE FeedbackReplyHistory SET manager_id = NULL WHERE manager_id = ?').run(targetId);
+    await tx.prepare('UPDATE Surveys SET created_by = NULL WHERE created_by = ?').run(targetId);
+    await tx.prepare('UPDATE SurveyRecipients SET sent_by = NULL WHERE sent_by = ?').run(targetId);
+
+    await tx.prepare('DELETE FROM Accounts WHERE id = ?').run(targetId);
+    return ({ message: 'Đã xóa tài khoản' });
+    });
+    if (!res.headersSent) res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res,err);
   }
 });
 
 // ========== PRODUCTS (Manager & Admin) ==========
 app.get('/api/admin/products', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
+    validateDateRange(req.query.from,req.query.to);
+    for (const key of ['min_price','max_price']) if (req.query[key] && (!Number.isFinite(Number(req.query[key])) || Number(req.query[key])<0)) throw validationError('Khoảng giá không hợp lệ');
+    if (req.query.min_price && req.query.max_price && Number(req.query.min_price)>Number(req.query.max_price)) throw validationError('Giá tối thiểu phải nhỏ hơn hoặc bằng giá tối đa');
     const { search, category, supplier_id, launch_status, min_price, max_price, sort_by, sort_dir } = req.query;
     let sql = `
-      SELECT p.*, s.name as supplier_name,
+      SELECT ${PRODUCT_FIELDS}, (SELECT COUNT(*) FROM SurveyProducts sp WHERE sp.product_id=p.id)+(SELECT COUNT(*) FROM Surveys sv WHERE sv.target_product_id=p.id) AS survey_count, s.name as supplier_name,
         (SELECT COUNT(*) FROM Feedbacks f WHERE f.product_id = p.id) as review_count
       FROM Products p 
       LEFT JOIN Suppliers s ON p.supplier_id = s.id 
       WHERE 1=1
     `;
     const params = [];
-    if (search) { sql += ' AND (p.name LIKE ? OR p.description LIKE ?)'; const v = `%${search}%`; params.push(v, v); }
+    if (search) { sql += ' AND (p.name LIKE ? OR CAST(p.id AS NVARCHAR(20)) = ? OR p.description LIKE ?)'; const v = `%${search}%`; params.push(v,String(search).replace(/^#/,''),v); }
     if (category) { sql += ' AND p.category = ?'; params.push(category); }
     if (supplier_id) { sql += ' AND p.supplier_id = ?'; params.push(supplier_id); }
     if (launch_status) { sql += ' AND p.launch_status = ?'; params.push(launch_status); }
     if (min_price) { sql += ' AND p.price >= ?'; params.push(Number(min_price)); }
     if (max_price) { sql += ' AND p.price <= ?'; params.push(Number(max_price)); }
-    const allowedSort = { name: 'p.name', price: 'p.price', created_at: 'p.created_at', stock_quantity: 'p.stock_quantity' };
+    const allowedSort = { id: 'p.id', name: 'p.name', price: 'p.price', created_at: 'p.created_at', review_count:'review_count' };
     const sortCol = allowedSort[sort_by] || 'p.created_at';
     const sortDir = sort_dir === 'asc' ? 'ASC' : 'DESC';
     sql += ` ORDER BY ${sortCol} ${sortDir}`;
     const rows = await db.prepare(sql).all(...params);
-    res.json(rows);
+    listResponse(res,rows,req.query,{searchFields:['id','name','description'],statusField:'launch_status',sortFields:['id','name','price','created_at','review_count']});
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res,err);
   }
 });
 
 app.post('/api/admin/products', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
-    const { name, category, supplier_id, price, stock_quantity, stock, description, launch_status } = req.body;
+    validateCatalogPayload(req.body,true);
+    if (req.body.supplier_id && !await db.prepare('SELECT id FROM Suppliers WHERE id=?').get(req.body.supplier_id)) throw validationError('Nhà cung cấp không tồn tại');
+    const { name, category, supplier_id, price, description, launch_status } = req.body;
     if (!name || !category) return res.status(400).json({ error: 'Thiếu thông tin bắt buộc' });
 
     // Kiểm tra ràng buộc dây chuyền: Nếu mở kinh doanh (OFFICIAL) thì Nhà cung cấp không được ở trạng thái Ngừng hợp tác (INACTIVE)
@@ -579,24 +686,27 @@ app.post('/api/admin/products', authMiddleware, requireRole('ADMIN', 'MANAGER'),
       }
     }
 
-    const finalStock = stock_quantity !== undefined ? Number(stock_quantity) : (stock !== undefined ? Number(stock) : 0);
-    const result = await db.prepare('INSERT INTO Products (name, category, supplier_id, price, stock_quantity, description, launch_status) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(name, category, supplier_id || null, price || 0, finalStock, description || null, targetLaunch);
+    const result = await db.prepare('INSERT INTO Products (name, category, supplier_id, price, description, launch_status) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(name, category, supplier_id || null, price || 0, description || null, targetLaunch);
     res.status(201).json({ message: 'Thêm sản phẩm thành công', id: result.lastInsertRowid });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res,err);
   }
 });
 
 app.put('/api/admin/products/:id', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
-    const { name, category, supplier_id, price, stock_quantity, stock, description, launch_status } = req.body;
+    validateCatalogPayload(req.body,true);
+    if (req.body.supplier_id && !await db.prepare('SELECT id FROM Suppliers WHERE id=?').get(req.body.supplier_id)) throw validationError('Nhà cung cấp không tồn tại');
+    const { name, category, supplier_id, price, description, launch_status } = req.body;
     if (!name) return res.status(400).json({ error: 'Tên sản phẩm không được để trống' });
 
     // Kiểm tra sản phẩm hiện tại và số lượt đánh giá
-    const current = await db.prepare(`
-      SELECT p.*, (SELECT COUNT(*) FROM Feedbacks f WHERE f.product_id = p.id) as review_count
-      FROM Products p WHERE p.id = ?
+    await db.transaction(async tx => {
+      await checkRecordVersion(tx,'Products',req.params.id,req.body);
+    const current = await tx.prepare(`
+      SELECT ${PRODUCT_FIELDS}, (SELECT COUNT(*) FROM Feedbacks f WHERE f.product_id = p.id) as review_count
+      FROM Products p WITH (UPDLOCK,HOLDLOCK) WHERE p.id = ?
     `).get(req.params.id);
 
     if (!current) return res.status(404).json({ error: 'Không tìm thấy sản phẩm' });
@@ -619,50 +729,52 @@ app.put('/api/admin/products/:id', authMiddleware, requireRole('ADMIN', 'MANAGER
 
     // Kiểm tra ràng buộc dây chuyền: Nếu mở kinh doanh (OFFICIAL) thì Nhà cung cấp không được ở trạng thái Ngừng hợp tác
     if (finalSupplierId && targetLaunch === 'OFFICIAL') {
-      const sup = await db.prepare('SELECT id, name, status FROM Suppliers WHERE id = ?').get(finalSupplierId);
+      const sup = await tx.prepare('SELECT id, name, status FROM Suppliers WHERE id = ?').get(finalSupplierId);
       if (sup && sup.status === 'INACTIVE') {
         return res.status(400).json({ error: 'Không thể mở kinh doanh sản phẩm vì nhà cung cấp đang ở trạng thái Ngừng hợp tác.' });
       }
     }
 
-    const finalStock = stock_quantity !== undefined ? Number(stock_quantity) : (stock !== undefined ? Number(stock) : (current.stock_quantity || 0));
 
-    // Cho phép chuyển đổi qua lại trạng thái Đang kinh doanh <-> Ngừng kinh doanh
+    // Cho phép chuyển đổi qua lại trạng thái Đang bán <-> Ngừng bán
     // Vẫn cho phép sửa: Tên sản phẩm, Giá bán, Trạng thái kinh doanh, Mô tả
-    await db.prepare('UPDATE Products SET name=?, category=?, supplier_id=?, price=?, stock_quantity=?, description=?, launch_status=? WHERE id=?')
-      .run(name, finalCategory, finalSupplierId, price !== undefined ? Number(price) : current.price, finalStock, description !== undefined ? description : current.description, targetLaunch, req.params.id);
+    await tx.prepare('UPDATE Products SET name=?, category=?, supplier_id=?, price=?, description=?, launch_status=? WHERE id=?')
+      .run(name, finalCategory, finalSupplierId, price !== undefined ? Number(price) : current.price, description !== undefined ? description : current.description, targetLaunch, req.params.id);
+    });
+    if (res.headersSent) return;
     res.json({ message: 'Cập nhật sản phẩm thành công' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res,err);
   }
 });
 
 app.delete('/api/admin/products/:id', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
-    const product = await db.prepare(`
-      SELECT p.*, (SELECT COUNT(*) FROM Feedbacks f WHERE f.product_id = p.id) as review_count
+    const result=await db.transaction(async tx => {
+    const product = await tx.prepare(`
+      SELECT ${PRODUCT_FIELDS}, (SELECT COUNT(*) FROM Feedbacks f WHERE f.product_id = p.id) as review_count,
+      (SELECT COUNT(*) FROM SurveyProducts sp WHERE sp.product_id=p.id) + (SELECT COUNT(*) FROM Surveys s WHERE s.target_product_id=p.id) AS survey_count
       FROM Products p WHERE p.id = ?
     `).get(req.params.id);
 
     if (!product) return res.status(404).json({ error: 'Không tìm thấy sản phẩm' });
 
-    if (Number(product.review_count) > 0) {
-      // Chặn xóa cứng khi đã có đánh giá: Tự động chuyển sang trạng thái Ngừng kinh doanh (UPCOMING)
-      await db.prepare('UPDATE Products SET launch_status = ? WHERE id = ?').run('UPCOMING', req.params.id);
-      return res.json({
-        message: `Sản phẩm "${product.name}" đã có ${product.review_count} lượt đánh giá từ khách hàng. Đã tự động chuyển sang trạng thái "Ngừng kinh doanh (Đóng đánh giá)" để bảo toàn lịch sử CRM.`,
+    if (Number(product.review_count) > 0 || Number(product.survey_count) > 0) {
+      // Chặn xóa cứng khi đã có đánh giá: Tự động chuyển sang trạng thái Ngừng bán (UPCOMING)
+      await tx.prepare('UPDATE Products SET launch_status = ? WHERE id = ?').run('UPCOMING', req.params.id);
+      return ({
+        message: `Sản phẩm "${product.name}" đã có ${product.review_count} lượt đánh giá và ${product.survey_count} liên kết khảo sát. Đã tự động chuyển sang trạng thái "Ngừng bán (Đóng đánh giá)" để bảo toàn lịch sử CRM.`,
         softDeleted: true
       });
     } else {
       // Chưa có đánh giá nào: Xóa cứng khỏi Database
-      try {
-        await db.prepare('DELETE FROM SurveyProducts WHERE product_id = ?').run(req.params.id);
-      } catch (_) { }
-      await db.prepare('DELETE FROM Products WHERE id = ?').run(req.params.id);
-      return res.json({ message: `Đã xóa vĩnh viễn sản phẩm "${product.name}" khỏi cơ sở dữ liệu.`, softDeleted: false });
+      await tx.prepare('DELETE FROM Products WHERE id = ?').run(req.params.id);
+      return ({ message: `Đã xóa vĩnh viễn sản phẩm "${product.name}" khỏi cơ sở dữ liệu.`, softDeleted: false });
     }
+    });
+    if (!res.headersSent) res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res,err);
   }
 });
 
@@ -681,9 +793,9 @@ app.get('/api/admin/suppliers', authMiddleware, requireRole('ADMIN', 'MANAGER'),
     `;
     const params = [];
     if (search) {
-      sql += ' AND (s.name LIKE ? OR s.contact_name LIKE ? OR s.email LIKE ? OR s.phone LIKE ?)';
+      sql += ' AND (s.name LIKE ? OR s.contact_name LIKE ? OR s.email LIKE ? OR s.phone LIKE ? OR CAST(s.id AS NVARCHAR(20)) = ?)';
       const v = `%${search}%`;
-      params.push(v, v, v, v);
+      params.push(v,v,v,v,String(search).replace(/^#/,''));
     }
     if (status) {
       sql += ' AND s.status = ?';
@@ -691,29 +803,33 @@ app.get('/api/admin/suppliers', authMiddleware, requireRole('ADMIN', 'MANAGER'),
     }
     sql += ' ORDER BY s.created_at DESC';
     const rows = await db.prepare(sql).all(...params);
-    res.json(rows);
+    listResponse(res,rows,req.query,{searchFields:['id','name','contact_name','email','phone'],sortFields:['id','name','created_at']});
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res,err);
   }
 });
 
 app.post('/api/admin/suppliers', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
+    validateCatalogPayload(req.body,false);
     const { name, contact_name, email, phone, address, status } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: 'Tên nhà cung cấp là bắt buộc' });
     const result = await db.prepare('INSERT INTO Suppliers (name, contact_name, email, phone, address, status) VALUES (?, ?, ?, ?, ?, ?)')
       .run(name.trim(), contact_name || null, email || null, phone || null, address || null, status || 'ACTIVE');
     res.status(201).json({ message: 'Thêm nhà cung cấp thành công', id: result.lastInsertRowid });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res,err);
   }
 });
 
 app.put('/api/admin/suppliers/:id', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
+    validateCatalogPayload(req.body,false);
     const { name, contact_name, email, phone, address, status } = req.body;
 
-    const currentSupplier = await db.prepare(`
+    const result=await db.transaction(async tx => {
+      await checkRecordVersion(tx,'Suppliers',req.params.id,req.body);
+    const currentSupplier = await tx.prepare(`
       SELECT s.*, (SELECT COUNT(*) FROM Products p WHERE p.supplier_id = s.id) AS product_count
       FROM Suppliers s WHERE s.id = ?
     `).get(req.params.id);
@@ -733,28 +849,31 @@ app.put('/api/admin/suppliers/:id', authMiddleware, requireRole('ADMIN', 'MANAGE
 
     const finalAddress = address !== undefined ? (address || null) : (currentSupplier.address || null);
     const newStatus = status || currentSupplier.status;
-    await db.prepare('UPDATE Suppliers SET name=?, contact_name=?, email=?, phone=?, address=?, status=? WHERE id=?')
+    await tx.prepare('UPDATE Suppliers SET name=?, contact_name=?, email=?, phone=?, address=?, status=? WHERE id=?')
       .run(finalName, contact_name || null, email || null, phone || null, finalAddress, newStatus, req.params.id);
 
     // Tự động đóng đánh giá sản phẩm khi Nhà cung cấp "Ngừng hợp tác" (INACTIVE)
     if (newStatus === 'INACTIVE') {
-      await db.prepare('UPDATE Products SET launch_status = ? WHERE supplier_id = ?').run('UPCOMING', req.params.id);
+      await tx.prepare('UPDATE Products SET launch_status = ? WHERE supplier_id = ?').run('UPCOMING', req.params.id);
       if (Number(currentSupplier.product_count) > 0) {
-        return res.json({
-          message: `Cập nhật thành công. Toàn bộ ${currentSupplier.product_count} sản phẩm thuộc nhà cung cấp này đã tự động chuyển sang Ngừng kinh doanh (Đóng đánh giá).`
+        return ({
+          message: `Cập nhật thành công. Toàn bộ ${currentSupplier.product_count} sản phẩm thuộc nhà cung cấp này đã tự động chuyển sang Ngừng bán (Đóng đánh giá).`
         });
       }
     }
 
-    res.json({ message: 'Cập nhật nhà cung cấp thành công' });
+    return ({ message: 'Cập nhật nhà cung cấp thành công' });
+    });
+    if (!res.headersSent) res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res,err);
   }
 });
 
 app.delete('/api/admin/suppliers/:id', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
-    const supplier = await db.prepare(`
+    const result=await db.transaction(async tx => {
+    const supplier = await tx.prepare(`
       SELECT s.*, (SELECT COUNT(*) FROM Products p WHERE p.supplier_id = s.id) AS product_count
       FROM Suppliers s WHERE s.id = ?
     `).get(req.params.id);
@@ -762,19 +881,21 @@ app.delete('/api/admin/suppliers/:id', authMiddleware, requireRole('ADMIN', 'MAN
 
     if (Number(supplier.product_count) > 0) {
       // Chặn xóa cứng khi đã có sản phẩm: Tự động chuyển sang INACTIVE và chuyển toàn bộ sản phẩm sang UPCOMING
-      await db.prepare('UPDATE Suppliers SET status = ? WHERE id = ?').run('INACTIVE', req.params.id);
-      await db.prepare('UPDATE Products SET launch_status = ? WHERE supplier_id = ?').run('UPCOMING', req.params.id);
-      return res.json({
+      await tx.prepare('UPDATE Suppliers SET status = ? WHERE id = ?').run('INACTIVE', req.params.id);
+      await tx.prepare('UPDATE Products SET launch_status = ? WHERE supplier_id = ?').run('UPCOMING', req.params.id);
+      return ({
         message: `Nhà cung cấp "${supplier.name}" đang có ${supplier.product_count} sản phẩm liên kết. Đã tự động chuyển sang trạng thái "Ngừng hợp tác" và đóng đánh giá toàn bộ sản phẩm liên quan để bảo toàn dữ liệu CRM.`,
         softDeleted: true
       });
     } else {
       // Chưa có sản phẩm nào: Xóa cứng khỏi Database
-      await db.prepare('DELETE FROM Suppliers WHERE id = ?').run(req.params.id);
-      return res.json({ message: `Đã xóa vĩnh viễn nhà cung cấp "${supplier.name}" khỏi cơ sở dữ liệu.`, softDeleted: false });
+      await tx.prepare('DELETE FROM Suppliers WHERE id = ?').run(req.params.id);
+      return ({ message: `Đã xóa vĩnh viễn nhà cung cấp "${supplier.name}" khỏi cơ sở dữ liệu.`, softDeleted: false });
     }
+    });
+    if (!res.headersSent) res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res,err);
   }
 });
 
@@ -885,19 +1006,18 @@ app.get('/api/manager/analytics', authMiddleware, requireRole('MANAGER'), async 
       surveyRecipientDateParams.push(from);
     }
     if (to) {
-      const toExclusive = `${to}T23:59:59.997`;
-      customerDateWhere += ' AND c.created_at <= ?';
-      accountDateWhere += ' AND a.created_at <= ?';
-      feedbackDateWhere += ' AND f.created_at <= ?';
+      customerDateWhere += ' AND CAST(c.created_at AS DATE) <= ?';
+      accountDateWhere += ' AND CAST(a.created_at AS DATE) <= ?';
+      feedbackDateWhere += ' AND CAST(f.created_at AS DATE) <= ?';
       surveyCampaignDateWhere += ' AND COALESCE(s.start_date, CAST(s.created_at AS DATE)) <= ?';
-      surveyResponseDateWhere += ' AND sr.submitted_at <= ?';
-      surveyRecipientDateWhere += ' AND r.sent_at <= ?';
-      customerDateParams.push(toExclusive);
-      accountDateParams.push(toExclusive);
-      feedbackDateParams.push(toExclusive);
+      surveyResponseDateWhere += ' AND CAST(sr.submitted_at AS DATE) <= ?';
+      surveyRecipientDateWhere += ' AND CAST(r.sent_at AS DATE) <= ?';
+      customerDateParams.push(to);
+      accountDateParams.push(to);
+      feedbackDateParams.push(to);
       surveyCampaignDateParams.push(to);
-      surveyResponseDateParams.push(toExclusive);
-      surveyRecipientDateParams.push(toExclusive);
+      surveyResponseDateParams.push(to);
+      surveyRecipientDateParams.push(to);
     }
 
     const rawAgeGroups = await db.prepare(`
@@ -1064,7 +1184,7 @@ app.get('/api/manager/products/:productId/feedbacks', authMiddleware, requireRol
     if (!product) return res.status(404).json({ error: 'Không tìm thấy sản phẩm' });
 
     const feedbacks = await db.prepare(`
-      SELECT f.id, f.rating, f.content, f.reply_content, f.status, f.created_at,
+      SELECT f.id, f.record_version, f.rating, f.content, f.reply_content, f.status, f.created_at,
         a.id AS account_id, a.full_name, a.email, a.phone,
         c.id AS customer_id, c.age, c.gender, c.skin_type, c.beauty_preferences
       FROM Feedbacks f
@@ -1091,17 +1211,17 @@ app.get('/api/manager/analytics/export', authMiddleware, requireRole('MANAGER'),
     let rows;
     if (type === 'customers') {
       if (from) { where += ' AND c.created_at >= ?'; params.push(from); }
-      if (to) { where += ' AND c.created_at <= ?'; params.push(`${to}T23:59:59.997`); }
+      if (to) { where += ' AND CAST(c.created_at AS DATE) <= ?'; params.push(to); }
       headers = ['Họ tên', 'Username', 'Email', 'Trạng thái', 'Tuổi', 'Giới tính', 'Loại da', 'Ngày đăng ký'];
       rows = await db.prepare(`SELECT a.full_name, a.username, a.email, a.status, c.age, c.gender, c.skin_type, c.created_at FROM Accounts a JOIN Customers c ON c.account_id = a.id WHERE a.role='CUSTOMER'${where} ORDER BY c.created_at DESC`).all(...params);
     } else if (type === 'feedbacks') {
       if (from) { where += ' AND f.created_at >= ?'; params.push(from); }
-      if (to) { where += ' AND f.created_at <= ?'; params.push(`${to}T23:59:59.997`); }
+      if (to) { where += ' AND CAST(f.created_at AS DATE) <= ?'; params.push(to); }
       headers = ['Khách hàng', 'Sản phẩm', 'Số sao', 'Trạng thái', 'Nội dung', 'Ngày gửi'];
       rows = await db.prepare(`SELECT a.full_name AS customer_name, p.name AS product_name, f.rating, f.status, f.content, f.created_at FROM Feedbacks f JOIN Customers c ON c.id=f.customer_id JOIN Accounts a ON a.id=c.account_id JOIN Products p ON p.id=f.product_id WHERE 1=1${where} ORDER BY f.created_at DESC`).all(...params);
     } else if (type === 'surveys') {
       if (from) { where += ' AND s.created_at >= ?'; params.push(from); }
-      if (to) { where += ' AND s.created_at <= ?'; params.push(`${to}T23:59:59.997`); }
+      if (to) { where += ' AND CAST(s.created_at AS DATE) <= ?'; params.push(to); }
       headers = ['Tiêu đề', 'Trạng thái', 'Số người nhận', 'Số phản hồi', 'Ngày tạo'];
       rows = await db.prepare(`SELECT s.title, s.status, (SELECT COUNT(*) FROM SurveyRecipients r WHERE r.survey_id=s.id) AS recipients, (SELECT COUNT(*) FROM SurveyResults sr WHERE sr.survey_id=s.id) AS responses, s.created_at FROM Surveys s WHERE 1=1${where} ORDER BY s.created_at DESC`).all(...params);
     } else {
@@ -1121,10 +1241,9 @@ app.get('/api/manager/analytics/export', authMiddleware, requireRole('MANAGER'),
 app.get('/api/manager/customers', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
     const { search, skin_type, beauty_preference, status } = req.query;
-    let sql = `SELECT a.id, a.username, a.password, a.full_name, a.email, a.phone, a.status, a.created_at,
+    let sql = `SELECT a.id, a.record_version, a.username, a.password, a.full_name, a.email, a.phone, a.status, a.created_at,
       c.id as customer_id, c.age, c.gender, c.skin_type, c.beauty_preferences,
       (SELECT COUNT(*) FROM Feedbacks f WHERE f.customer_id = c.id) AS feedback_count,
-      (SELECT ROUND(AVG(CAST(f.rating AS FLOAT)), 1) FROM Feedbacks f WHERE f.customer_id = c.id) AS avg_rating,
       (SELECT COUNT(*) FROM SurveyResults sr WHERE sr.customer_id = c.id) AS survey_count
       FROM Accounts a LEFT JOIN Customers c ON a.id = c.account_id
       WHERE a.role = 'CUSTOMER'`;
@@ -1132,45 +1251,51 @@ app.get('/api/manager/customers', authMiddleware, requireRole('MANAGER'), async 
     if (search) {
       const trimmed = search.trim();
       const cleanUser = trimmed.startsWith('@') ? trimmed.slice(1) : trimmed;
-      sql += ' AND (a.full_name LIKE ? OR a.username LIKE ? OR a.email LIKE ? OR a.phone LIKE ?)';
+      sql += ' AND (a.full_name LIKE ? OR a.username LIKE ? OR a.email LIKE ? OR a.phone LIKE ? OR CAST(c.id AS NVARCHAR(20)) = ?)';
       const v = `%${trimmed}%`;
       const vu = `%${cleanUser}%`;
-      params.push(v, vu, v, v);
+      params.push(v, vu, v, v, cleanUser.replace(/^#/, ''));
     }
     if (skin_type) { sql += ' AND c.skin_type = ?'; params.push(skin_type); }
     if (beauty_preference) { sql += ' AND c.beauty_preferences LIKE ?'; params.push(`%${beauty_preference}%`); }
     if (status) { sql += ' AND a.status = ?'; params.push(status); }
     sql += ' ORDER BY a.created_at DESC';
     const rows = await db.prepare(sql).all(...params);
-    res.json(rows);
+    listResponse(res,rows,req.query,{searchFields:['customer_id','full_name','username','email','phone'],sortFields:['customer_id','full_name','created_at']});
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res,err);
   }
 });
 
 app.post('/api/manager/customers', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
+    validateAccountPayload(req.body, req.method === 'POST');
     const { username, password, full_name, email, phone, age, gender, skin_type, beauty_preferences } = req.body;
     if (!username || !password || !full_name) return res.status(400).json({ error: 'Thiếu thông tin bắt buộc' });
     const existing = await db.prepare('SELECT id FROM Accounts WHERE username = ?').get(username);
     if (existing) return res.status(409).json({ error: 'Tên đăng nhập đã tồn tại' });
-    const accResult = await insertAccount(username, password, full_name, email, phone, 'CUSTOMER');
-    await db.prepare('INSERT INTO Customers (account_id, age, gender, skin_type, beauty_preferences) VALUES (?, ?, ?, ?, ?)').run(accResult.lastInsertRowid, age || null, gender || null, skin_type || null, normalizeBeautyPreferences(beauty_preferences) || null);
+    await db.transaction(async tx => {
+    const accResult = await insertAccount(username, password, full_name, email, phone, 'CUSTOMER', tx);
+    await tx.prepare('INSERT INTO Customers (account_id, age, gender, skin_type, beauty_preferences) VALUES (?, ?, ?, ?, ?)').run(accResult.lastInsertRowid, age || null, gender || null, skin_type || null, normalizeBeautyPreferences(beauty_preferences) || null);
+    });
     res.status(201).json({ message: 'Thêm khách hàng thành công' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res, err);
   }
 });
 
 app.put('/api/manager/customers/:accountId', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
+    validateAccountPayload(req.body, req.method === 'POST');
     const accountId = Number(req.params.accountId);
     const { username, password, full_name, email, phone, age, gender, skin_type, status, beauty_preferences } = req.body;
-    const targetAccount = await db.prepare("SELECT id, username FROM Accounts WHERE id = ? AND role = 'CUSTOMER'").get(accountId);
+    await db.transaction(async tx => {
+      await checkRecordVersion(tx,'Accounts',accountId,req.body);
+    const targetAccount = await tx.prepare("SELECT id, username FROM Accounts WHERE id = ? AND role = 'CUSTOMER'").get(accountId);
     if (!targetAccount) return res.status(404).json({ error: 'Khách hàng không tồn tại' });
 
     if (username && username !== targetAccount.username) {
-      const existing = await db.prepare('SELECT id FROM Accounts WHERE username = ? AND id != ?').get(username, accountId);
+      const existing = await tx.prepare('SELECT id FROM Accounts WHERE username = ? AND id != ?').get(username, accountId);
       if (existing) return res.status(409).json({ error: 'Tên đăng nhập đã tồn tại' });
     }
 
@@ -1179,50 +1304,57 @@ app.put('/api/manager/customers/:accountId', authMiddleware, requireRole('MANAGE
     if (username) { accUpdates.push('username = ?'); accParams.push(username); }
     if (password) { accUpdates.push('password = ?'); accParams.push(password); }
     if (full_name) { accUpdates.push('full_name = ?'); accParams.push(full_name); }
-    accUpdates.push('email = ?'); accParams.push(email || null);
-    accUpdates.push('phone = ?'); accParams.push(phone || null);
+    if(email!==undefined){accUpdates.push('email = ?');accParams.push(email || null);}
+    if(phone!==undefined){accUpdates.push('phone = ?');accParams.push(phone || null);}
     if (status) { accUpdates.push('status = ?'); accParams.push(status); }
     accParams.push(accountId);
 
-    await db.prepare(`UPDATE Accounts SET ${accUpdates.join(', ')} WHERE id = ?`).run(...accParams);
+    if(accUpdates.length)await tx.prepare(`UPDATE Accounts SET ${accUpdates.join(', ')} WHERE id = ?`).run(...accParams);
 
-    const custRow = await db.prepare('SELECT id FROM Customers WHERE account_id = ?').get(accountId);
+    const custRow = await tx.prepare(`SELECT ${CUSTOMER_FIELDS} FROM Customers WHERE account_id = ?`).get(accountId);
     if (custRow) {
-      await db.prepare(`
+      await tx.prepare(`
         UPDATE Customers
         SET age = ?, gender = ?, skin_type = ?, beauty_preferences = ?
         WHERE account_id = ?
-      `).run(age || null, gender || null, skin_type || null, normalizeBeautyPreferences(beauty_preferences) || null, accountId);
+      `).run(age===undefined?custRow.age:age || null,gender===undefined?custRow.gender:gender || null,skin_type===undefined?custRow.skin_type:skin_type || null,beauty_preferences===undefined?custRow.beauty_preferences:normalizeBeautyPreferences(beauty_preferences) || null,accountId);
     } else {
-      await db.prepare(`
+      await tx.prepare(`
         INSERT INTO Customers (account_id, age, gender, skin_type, beauty_preferences)
         VALUES (?, ?, ?, ?, ?)
       `).run(accountId, age || null, gender || null, skin_type || null, normalizeBeautyPreferences(beauty_preferences) || null);
     }
 
+    });
+    if (res.headersSent) return;
     res.json({ message: 'Cập nhật thông tin khách hàng thành công' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res, err);
   }
 });
 
 app.put('/api/manager/customers/:accountId/status', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
+    validateAccountPayload(req.body, req.method === 'POST');
     const { status } = req.body;
+    if (!['ACTIVE','LOCKED'].includes(status)) return res.status(400).json({ error: 'Trạng thái tài khoản không hợp lệ' });
+    const account = await db.prepare("SELECT id FROM Accounts WHERE id = ? AND role = 'CUSTOMER'").get(req.params.accountId);
+    if (!account) return res.status(404).json({ error: 'Khách hàng không tồn tại' });
     await db.prepare('UPDATE Accounts SET status = ? WHERE id = ? AND role = ?').run(status, req.params.accountId, 'CUSTOMER');
     res.json({ message: status === 'LOCKED' ? 'Đã khóa tài khoản khách hàng' : 'Đã mở khóa tài khoản khách hàng' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res, err);
   }
 });
 
 app.delete('/api/manager/customers/:accountId', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
+    const result=await db.transaction(async tx => {
     const accountId = Number(req.params.accountId);
-    const account = await db.prepare("SELECT id, full_name, status FROM Accounts WHERE id = ? AND role = 'CUSTOMER'").get(accountId);
+    const account = await tx.prepare("SELECT id, full_name, status FROM Accounts WHERE id = ? AND role = 'CUSTOMER'").get(accountId);
     if (!account) return res.status(404).json({ error: 'Không tìm thấy tài khoản khách hàng' });
 
-    const cust = await db.prepare(`
+    const cust = await tx.prepare(`
       SELECT c.id,
         (SELECT COUNT(*) FROM Feedbacks f WHERE f.customer_id = c.id) AS feedback_count,
         (SELECT COUNT(*) FROM SurveyResults sr WHERE sr.customer_id = c.id) AS survey_count
@@ -1235,25 +1367,27 @@ app.delete('/api/manager/customers/:accountId', authMiddleware, requireRole('MAN
 
     if (hasInteractions) {
       // Chặn xóa cứng (Soft Delete an toàn): Tự động chuyển trạng thái tài khoản sang LOCKED để bảo toàn lịch sử CRM
-      await db.prepare("UPDATE Accounts SET status = 'LOCKED' WHERE id = ? AND role = 'CUSTOMER'").run(accountId);
-      return res.json({
+      await tx.prepare("UPDATE Accounts SET status = 'LOCKED' WHERE id = ? AND role = 'CUSTOMER'").run(accountId);
+      return ({
         message: 'Khách hàng đã có dữ liệu đánh giá/khảo sát. Hệ thống đã tự động chuyển sang trạng thái Khóa tài khoản thay vì xóa vĩnh viễn để bảo toàn lịch sử thống kê CRM.',
         softDeleted: true
       });
     } else {
       // Chưa có đánh giá hay khảo sát: Cho phép xóa vĩnh viễn (Hard Delete)
       if (cust) {
-        await db.prepare('DELETE FROM SurveyRecipients WHERE customer_id = ?').run(cust.id);
-        await db.prepare('DELETE FROM Customers WHERE id = ?').run(cust.id);
+        await tx.prepare('DELETE FROM SurveyRecipients WHERE customer_id = ?').run(cust.id);
+        await tx.prepare('DELETE FROM Customers WHERE id = ?').run(cust.id);
       }
-      await db.prepare("DELETE FROM Accounts WHERE id = ? AND role = 'CUSTOMER'").run(accountId);
-      return res.json({
+      await tx.prepare("DELETE FROM Accounts WHERE id = ? AND role = 'CUSTOMER'").run(accountId);
+      return ({
         message: `Đã xóa vĩnh viễn tài khoản khách hàng "${account.full_name}" khỏi cơ sở dữ liệu.`,
         softDeleted: false
       });
     }
+    });
+    if (!res.headersSent) res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res,err);
   }
 });
 
@@ -1271,9 +1405,9 @@ app.get('/api/manager/surveys', authMiddleware, requireRole('MANAGER'), async (r
       LEFT JOIN Accounts a ON s.created_by = a.id
       ORDER BY s.created_at DESC
     `).all();
-    res.json(surveys);
+    listResponse(res,surveys,req.query,{dateField:'start_date',searchFields:['id','title'],sortFields:['id','title','start_date','end_date']});
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res,err);
   }
 });
 
@@ -1329,16 +1463,17 @@ app.put('/api/manager/surveys/:id', authMiddleware, requireRole('MANAGER'), asyn
     const surveyId = Number(req.params.id);
     if (!Number.isInteger(surveyId) || surveyId <= 0) return res.status(400).json({ error: 'Mã khảo sát không hợp lệ' });
     const payload = normalizeSurveyPayload(req.body, { allowStatus: true });
-    const existing = await db.prepare('SELECT id FROM Surveys WHERE id = ?').get(surveyId);
+    await db.transaction(async tx => {
+      await checkRecordVersion(tx,'Surveys',surveyId,req.body);
+    const existing = await tx.prepare('SELECT id FROM Surveys WITH (UPDLOCK, HOLDLOCK) WHERE id = ?').get(surveyId);
     if (!existing) return res.status(404).json({ error: 'Không tìm thấy khảo sát' });
-    const responseCount = await db.prepare('SELECT COUNT(*) AS count FROM SurveyResults WHERE survey_id = ?').get(surveyId);
+    const responseCount = await tx.prepare('SELECT COUNT(*) AS count FROM SurveyResults WHERE survey_id = ?').get(surveyId);
     if (Number(responseCount?.count) > 0) {
       const error = new Error('Không thể chỉnh sửa cấu trúc khảo sát đã có phản hồi. Bạn vẫn có thể đóng khảo sát bằng nút trạng thái.');
       error.status = 409;
       throw error;
     }
     await validateSurveyReferences(payload);
-    await db.transaction(async tx => {
       await tx.prepare(`
         UPDATE Surveys SET title = ?, description = ?, start_date = ?, end_date = ?, status = COALESCE(?, status)
         WHERE id = ?
@@ -1358,6 +1493,7 @@ app.put('/api/manager/surveys/:id', authMiddleware, requireRole('MANAGER'), asyn
       }
     });
 
+    if (res.headersSent) return;
     res.json({ message: 'Cập nhật khảo sát thành công' });
   } catch (err) {
     sendKnownError(res, err);
@@ -1366,21 +1502,24 @@ app.put('/api/manager/surveys/:id', authMiddleware, requireRole('MANAGER'), asyn
 
 app.delete('/api/manager/surveys/:id', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
+    const result=await db.transaction(async tx => {
     const surveyId = Number(req.params.id);
-    const existing = await db.prepare('SELECT id, title FROM Surveys WHERE id = ?').get(surveyId);
+    const existing = await tx.prepare('SELECT id, title FROM Surveys WHERE id = ?').get(surveyId);
     if (!existing) return res.status(404).json({ error: 'Không tìm thấy khảo sát' });
 
     // Xóa liên hoàn câu trả lời, kết quả, người nhận, sản phẩm, câu hỏi, khảo sát
-    await db.prepare('DELETE FROM SurveyAnswers WHERE survey_result_id IN (SELECT id FROM SurveyResults WHERE survey_id = ?)').run(surveyId);
-    await db.prepare('DELETE FROM SurveyResults WHERE survey_id = ?').run(surveyId);
-    await db.prepare('DELETE FROM SurveyRecipients WHERE survey_id = ?').run(surveyId);
-    await db.prepare('DELETE FROM SurveyProducts WHERE survey_id = ?').run(surveyId);
-    await db.prepare('DELETE FROM Questions WHERE survey_id = ?').run(surveyId);
-    await db.prepare('DELETE FROM Surveys WHERE id = ?').run(surveyId);
+    await tx.prepare('DELETE FROM SurveyAnswers WHERE survey_result_id IN (SELECT id FROM SurveyResults WHERE survey_id = ?)').run(surveyId);
+    await tx.prepare('DELETE FROM SurveyResults WHERE survey_id = ?').run(surveyId);
+    await tx.prepare('DELETE FROM SurveyRecipients WHERE survey_id = ?').run(surveyId);
+    await tx.prepare('DELETE FROM SurveyProducts WHERE survey_id = ?').run(surveyId);
+    await tx.prepare('DELETE FROM Questions WHERE survey_id = ?').run(surveyId);
+    await tx.prepare('DELETE FROM Surveys WHERE id = ?').run(surveyId);
 
-    res.json({ message: `Đã xóa khảo sát "${existing.title}" thành công` });
+    return ({ message: `Đã xóa khảo sát "${existing.title}" thành công` });
+    });
+    if (!res.headersSent) res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res,err);
   }
 });
 
@@ -1420,26 +1559,27 @@ app.get('/api/manager/surveys/:id/recipients', authMiddleware, requireRole('MANA
 app.put('/api/manager/surveys/:id/recipients', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
     const { customer_ids } = req.body;
-    const survey = await db.prepare('SELECT id FROM Surveys WHERE id = ?').get(req.params.id);
+    const recipientCount = await db.transaction(async tx => {
+    const survey = await tx.prepare('SELECT id FROM Surveys WITH (UPDLOCK,HOLDLOCK) WHERE id = ?').get(req.params.id);
     if (!survey) return res.status(404).json({ error: 'Không tìm thấy khảo sát' });
     if (!Array.isArray(customer_ids)) return res.status(400).json({ error: 'Danh sách người nhận không hợp lệ' });
     const ids = customer_ids.map(Number);
     if (ids.some(id => !Number.isInteger(id) || id <= 0) || new Set(ids).size !== ids.length) {
       return res.status(400).json({ error: 'Danh sách người nhận chứa mã không hợp lệ hoặc trùng lặp' });
     }
-    const responseCount = await db.prepare('SELECT COUNT(*) AS count FROM SurveyResults WHERE survey_id = ?').get(req.params.id);
+    const responseCount = await tx.prepare('SELECT COUNT(*) AS count FROM SurveyResults WHERE survey_id = ?').get(req.params.id);
     if (Number(responseCount?.count) > 0) {
       return res.status(409).json({ error: 'Không thể thay đổi người nhận sau khi khảo sát đã có phản hồi' });
     }
     if (ids.length) {
       const placeholders = ids.map(() => '?').join(',');
-      const activeCount = await db.prepare(`SELECT COUNT(*) AS count FROM Customers c JOIN Accounts a ON a.id=c.account_id WHERE c.id IN (${placeholders}) AND a.status='ACTIVE'`).get(...ids);
+      const activeCount = await tx.prepare(`SELECT COUNT(*) AS count FROM Customers c JOIN Accounts a ON a.id=c.account_id WHERE c.id IN (${placeholders}) AND a.status='ACTIVE'`).get(...ids);
       if (Number(activeCount?.count) !== ids.length) return res.status(400).json({ error: 'Một hoặc nhiều người nhận không tồn tại hoặc đã bị khóa' });
     }
-    const recipientCount = await db.transaction(async tx => {
       await tx.prepare('DELETE FROM SurveyRecipients WHERE survey_id = ?').run(req.params.id);
       return assignSurveyRecipients(req.params.id, ids, req.user.id, tx);
     });
+    if (res.headersSent) return;
     res.json({ message: 'Đã cập nhật danh sách người nhận khảo sát', recipient_count: recipientCount });
   } catch (err) {
     sendKnownError(res, err);
@@ -1811,37 +1951,60 @@ app.get('/api/manager/feedbacks', authMiddleware, requireRole('MANAGER'), async 
     }
     if (status) { sql += ' AND f.status = ?'; params.push(status); }
     if (search && search.trim()) {
-      sql += ' AND (a.full_name LIKE ? OR p.name LIKE ? OR f.content LIKE ?)';
+      sql += ' AND (a.full_name LIKE ? OR p.name LIKE ? OR f.content LIKE ? OR CAST(f.id AS NVARCHAR(20)) = ?)';
       const term = `%${search.trim()}%`;
-      params.push(term, term, term);
+      params.push(term,term,term,String(search).replace(/^#/,''));
     }
     sql += ' ORDER BY f.created_at DESC';
     const rows = await db.prepare(sql).all(...params);
-    res.json(rows);
+    listResponse(res,rows,req.query,{searchFields:['id','customer_name','product_name','content'],sortFields:['id','rating','created_at']});
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res,err);
   }
 });
 
 app.put('/api/manager/feedbacks/:id/reply', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
     const replyContent = String(req.body.reply_content || '').trim();
-    if (!replyContent) return res.status(400).json({ error: 'Nội dung phản hồi không được để trống' });
-    if (replyContent.length > 5000) return res.status(400).json({ error: 'Nội dung phản hồi không được vượt quá 5000 ký tự' });
-    const existing = await db.prepare('SELECT id FROM Feedbacks WHERE id = ?').get(req.params.id);
-    if (!existing) return res.status(404).json({ error: 'Không tìm thấy đánh giá' });
-    await db.prepare("UPDATE Feedbacks SET reply_content = ?, status = 'REPLIED' WHERE id = ?").run(replyContent, req.params.id);
-    res.json({ message: 'Đã phản hồi thành công' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    if (!replyContent || replyContent.length > 5000) throw validationError('Phản hồi phải có từ 1 đến 5000 ký tự');
+    await db.transaction(async tx => {
+      const existing = await tx.prepare('SELECT id, reply_content, status FROM Feedbacks WITH (UPDLOCK,HOLDLOCK) WHERE id=?').get(req.params.id);
+      if (!existing) { const error=new Error('Không tìm thấy đánh giá'); error.status=404; throw error; }
+      if (existing.reply_content === replyContent) return; // Retried identical request.
+      if (Object.prototype.hasOwnProperty.call(req.body,'expected_reply_content') && (req.body.expected_reply_content || null) !== (existing.reply_content || null)) {
+        const error=new Error('Phản hồi đã được Manager khác cập nhật. Vui lòng mở lại chi tiết.'); error.status=409; throw error;
+      }
+      await tx.prepare('INSERT INTO FeedbackReplyHistory(feedback_id,manager_id,old_content,new_content) VALUES(?,?,?,?)').run(existing.id,req.user.id,existing.reply_content,replyContent);
+      await tx.prepare("UPDATE Feedbacks SET reply_content=?, status='REPLIED', replied_at=GETDATE(), updated_at=GETDATE() WHERE id=?").run(replyContent,existing.id);
+    });
+    res.json({ message: 'Đã lưu phản hồi thành công' });
+  } catch(error) { sendKnownError(res,error); }
+});
+
+app.get('/api/manager/feedbacks/:id', authMiddleware, requireRole('MANAGER'), async (req,res) => {
+  try {
+    const row = await db.prepare(`SELECT f.*, p.name AS product_name, p.category, a.full_name AS customer_name, a.email, a.phone
+      FROM Feedbacks f JOIN Products p ON p.id=f.product_id JOIN Customers c ON c.id=f.customer_id JOIN Accounts a ON a.id=c.account_id WHERE f.id=?`).get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Không tìm thấy đánh giá' });
+    row.reply_history = await db.prepare(`SELECT h.id,h.old_content,h.new_content,h.changed_at,a.full_name AS manager_name FROM FeedbackReplyHistory h LEFT JOIN Accounts a ON a.id=h.manager_id WHERE h.feedback_id=? ORDER BY h.id DESC`).all(row.id);
+    res.json(row);
+  } catch(error) { sendKnownError(res,error); }
+});
+app.get('/api/customer/feedbacks/:id', authMiddleware, requireRole('CUSTOMER'), async (req,res) => {
+  try {
+    const row = await db.prepare(`SELECT f.*, p.name AS product_name, p.category FROM Feedbacks f JOIN Products p ON p.id=f.product_id
+      JOIN Customers c ON c.id=f.customer_id WHERE f.id=? AND c.account_id=?`).get(req.params.id,req.user.id);
+    if (!row) return res.status(404).json({ error: 'Không tìm thấy đánh giá' });
+    row.reply_history = await db.prepare(`SELECT h.id,h.old_content,h.new_content,h.changed_at,a.full_name AS manager_name FROM FeedbackReplyHistory h LEFT JOIN Accounts a ON a.id=h.manager_id WHERE h.feedback_id=? ORDER BY h.id DESC`).all(row.id);
+    res.json(row);
+  } catch(error) { sendKnownError(res,error); }
 });
 
 // ========== CUSTOMER: Profile ==========
 app.get('/api/customer/profile', authMiddleware, requireRole('CUSTOMER'), async (req, res) => {
   try {
-    const account = await db.prepare('SELECT id, username, full_name, email, phone, status, created_at FROM Accounts WHERE id = ?').get(req.user.id);
-    const customer = await db.prepare('SELECT * FROM Customers WHERE account_id = ?').get(req.user.id);
+    const account = await db.prepare('SELECT id, record_version, username, full_name, email, phone, status, created_at FROM Accounts WHERE id = ?').get(req.user.id);
+    const customer = await db.prepare(`SELECT ${CUSTOMER_FIELDS} FROM Customers WHERE account_id = ?`).get(req.user.id);
     res.json({ account, customer });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1850,12 +2013,18 @@ app.get('/api/customer/profile', authMiddleware, requireRole('CUSTOMER'), async 
 
 app.put('/api/customer/profile', authMiddleware, requireRole('CUSTOMER'), async (req, res) => {
   try {
+    validateAccountPayload(req.body);
     const { full_name, email, phone, age, gender, skin_type, beauty_preferences } = req.body;
-    await db.prepare('UPDATE Accounts SET full_name = ?, email = ?, phone = ? WHERE id = ?').run(full_name, email, phone, req.user.id);
-    await db.prepare('UPDATE Customers SET age = ?, gender = ?, skin_type = ?, beauty_preferences = ? WHERE account_id = ?').run(age || null, gender || null, skin_type || null, normalizeBeautyPreferences(beauty_preferences) || null, req.user.id);
+    await db.transaction(async tx => {
+      await checkRecordVersion(tx,'Accounts',req.user.id,req.body);
+      const previousAccount=await tx.prepare('SELECT full_name,email,phone FROM Accounts WHERE id=?').get(req.user.id);
+      const previousCustomer=await tx.prepare('SELECT age,gender,skin_type,beauty_preferences FROM Customers WHERE account_id=?').get(req.user.id);
+    await tx.prepare('UPDATE Accounts SET full_name = ?, email = ?, phone = ? WHERE id = ?').run(full_name===undefined?previousAccount.full_name:full_name,email===undefined?previousAccount.email:email || null,phone===undefined?previousAccount.phone:phone || null,req.user.id);
+    await tx.prepare('UPDATE Customers SET age = ?, gender = ?, skin_type = ?, beauty_preferences = ? WHERE account_id = ?').run(age===undefined?previousCustomer?.age:age || null,gender===undefined?previousCustomer?.gender:gender || null,skin_type===undefined?previousCustomer?.skin_type:skin_type || null,beauty_preferences===undefined?previousCustomer?.beauty_preferences:normalizeBeautyPreferences(beauty_preferences) || null,req.user.id);
+    });
     res.json({ message: 'Cập nhật thông tin thành công' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res,err);
   }
 });
 
@@ -1865,7 +2034,7 @@ app.get('/api/customer/products', authMiddleware, requireRole('CUSTOMER'), async
     const customer = await db.prepare('SELECT id FROM Customers WHERE account_id = ?').get(req.user.id);
     const customerId = customer ? customer.id : 0;
     const products = await db.prepare(`
-      SELECT p.*, s.name as supplier_name,
+      SELECT ${PRODUCT_FIELDS}, s.name as supplier_name,
         CASE WHEN EXISTS (SELECT 1 FROM Feedbacks f WHERE f.customer_id = ? AND f.product_id = p.id) THEN 1 ELSE 0 END AS already_reviewed,
         (SELECT f.rating FROM Feedbacks f WHERE f.customer_id = ? AND f.product_id = p.id) AS my_rating,
         (SELECT f.id FROM Feedbacks f WHERE f.customer_id = ? AND f.product_id = p.id) AS my_feedback_id,
@@ -1893,7 +2062,7 @@ app.get('/api/customer/products/:productId/feedbacks', authMiddleware, requireRo
     const customerId = customer ? customer.id : 0;
 
     const product = await db.prepare(`
-      SELECT p.*, s.name as supplier_name,
+      SELECT ${PRODUCT_FIELDS}, s.name as supplier_name,
         CASE WHEN EXISTS (SELECT 1 FROM Feedbacks f WHERE f.customer_id = ? AND f.product_id = p.id) THEN 1 ELSE 0 END AS already_reviewed
       FROM Products p
       LEFT JOIN Suppliers s ON p.supplier_id = s.id
@@ -1905,7 +2074,7 @@ app.get('/api/customer/products/:productId/feedbacks', authMiddleware, requireRo
     }
 
     const feedbacks = await db.prepare(`
-      SELECT f.id, f.rating, f.content, f.reply_content, f.status, f.created_at,
+      SELECT f.id, f.record_version, f.rating, f.content, f.reply_content, f.status, f.created_at,
              f.customer_id, a.full_name as customer_name, a.id as account_id
       FROM Feedbacks f
       JOIN Customers c ON f.customer_id = c.id
@@ -1960,19 +2129,20 @@ app.get('/api/customer/surveys', authMiddleware, requireRole('CUSTOMER'), async 
     if (!customer) return res.json([]);
     const surveys = await db.prepare(`
       SELECT s.*,
+      CASE WHEN s.status='ACTIVE' AND (s.start_date IS NULL OR s.start_date<=CAST(GETDATE() AS DATE)) AND (s.end_date IS NULL OR s.end_date>=CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END AS can_participate,
+      (SELECT MAX(h.submitted_at) FROM SurveyResults h WHERE h.survey_id=s.id AND h.customer_id=r.customer_id) AS submitted_at,
       (SELECT STRING_AGG(p2.name, N', ') FROM SurveyProducts sp2 JOIN Products p2 ON sp2.product_id = p2.id WHERE sp2.survey_id = s.id) as product_names,
       (SELECT COUNT(*) FROM Questions q WHERE q.survey_id = s.id) as question_count,
       (SELECT COUNT(*) FROM SurveyResults sr WHERE sr.survey_id = s.id AND sr.customer_id = ?) as already_submitted
       FROM Surveys s
       JOIN SurveyRecipients r ON r.survey_id = s.id AND r.customer_id = ?
-      WHERE s.status = 'ACTIVE'
-        AND (s.start_date IS NULL OR s.start_date <= CAST(GETDATE() AS DATE))
-        AND (s.end_date IS NULL OR s.end_date >= CAST(GETDATE() AS DATE))
+      WHERE (s.status IN ('ACTIVE','CLOSED') OR EXISTS(SELECT 1 FROM SurveyResults h WHERE h.survey_id=s.id AND h.customer_id=r.customer_id))
+        AND (s.start_date IS NULL OR s.start_date <= CAST(GETDATE() AS DATE) OR EXISTS (SELECT 1 FROM SurveyResults h WHERE h.survey_id=s.id AND h.customer_id=r.customer_id))
       ORDER BY r.sent_at DESC, s.created_at DESC
     `).all(customer.id, customer.id);
-    res.json(surveys);
+    listResponse(res,surveys,req.query,{dateField:'end_date',searchFields:['id','title','product_names'],sortFields:['id','title','end_date','submitted_at']});
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res,err);
   }
 });
 
@@ -1982,12 +2152,13 @@ app.get('/api/customer/surveys/:id', authMiddleware, requireRole('CUSTOMER'), as
     if (!customer) return res.status(400).json({ error: 'Không tìm thấy hồ sơ khách hàng' });
     const survey = await db.prepare(`
       SELECT s.*,
+      CASE WHEN s.status='ACTIVE' AND (s.start_date IS NULL OR s.start_date<=CAST(GETDATE() AS DATE)) AND (s.end_date IS NULL OR s.end_date>=CAST(GETDATE() AS DATE)) THEN 1 ELSE 0 END AS can_participate,
+      (SELECT MAX(h.submitted_at) FROM SurveyResults h WHERE h.survey_id=s.id AND h.customer_id=r.customer_id) AS submitted_at,
       (SELECT STRING_AGG(p2.name, N', ') FROM SurveyProducts sp2 JOIN Products p2 ON sp2.product_id = p2.id WHERE sp2.survey_id = s.id) as product_names
       FROM Surveys s
       JOIN SurveyRecipients r ON r.survey_id = s.id AND r.customer_id = ?
-      WHERE s.id = ? AND s.status = 'ACTIVE'
-        AND (s.start_date IS NULL OR s.start_date <= CAST(GETDATE() AS DATE))
-        AND (s.end_date IS NULL OR s.end_date >= CAST(GETDATE() AS DATE))
+      WHERE s.id = ? AND (s.status IN ('ACTIVE','CLOSED') OR EXISTS(SELECT 1 FROM SurveyResults h WHERE h.survey_id=s.id AND h.customer_id=r.customer_id))
+        AND (s.start_date IS NULL OR s.start_date <= CAST(GETDATE() AS DATE) OR EXISTS (SELECT 1 FROM SurveyResults h WHERE h.survey_id=s.id AND h.customer_id=r.customer_id))
     `).get(customer.id, req.params.id);
     if (!survey) return res.status(404).json({ error: 'Không tìm thấy khảo sát' });
     const questions = await db.prepare('SELECT * FROM Questions WHERE survey_id = ? ORDER BY order_index').all(req.params.id);
@@ -1995,7 +2166,9 @@ app.get('/api/customer/surveys/:id', authMiddleware, requireRole('CUSTOMER'), as
       if (q.options) try { q.options = JSON.parse(q.options); } catch { }
       q.is_required = q.is_required !== undefined && q.is_required !== null ? Boolean(q.is_required) : true;
     });
-    res.json({ survey, questions });
+    const submission = await db.prepare('SELECT id, submitted_at FROM SurveyResults WHERE survey_id=? AND customer_id=?').get(req.params.id, customer.id);
+    const answers = submission ? await db.prepare('SELECT question_id, answer_value FROM SurveyAnswers WHERE survey_result_id=?').all(submission.id) : [];
+    res.json({ survey, questions, submission: submission || null, answers });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2003,26 +2176,26 @@ app.get('/api/customer/surveys/:id', authMiddleware, requireRole('CUSTOMER'), as
 
 app.post('/api/customer/surveys/:id/submit', authMiddleware, requireRole('CUSTOMER'), async (req, res) => {
   try {
-    const account = await db.prepare('SELECT status FROM Accounts WHERE id = ?').get(req.user.id);
+    await db.transaction(async tx => {
+    const account = await tx.prepare('SELECT status FROM Accounts WHERE id = ?').get(req.user.id);
     if (account && account.status === 'LOCKED') {
       return res.status(403).json({ error: 'Tài khoản của bạn đã bị khóa và không thể thực hiện khảo sát.' });
     }
 
-    const customer = await db.prepare('SELECT id FROM Customers WHERE account_id = ?').get(req.user.id);
+    const customer = await tx.prepare('SELECT id FROM Customers WHERE account_id = ?').get(req.user.id);
     if (!customer) return res.status(400).json({ error: 'Không tìm thấy hồ sơ khách hàng' });
-    const survey = await db.prepare('SELECT id, status, start_date, end_date FROM Surveys WHERE id = ?').get(req.params.id);
+    const survey = await tx.prepare('SELECT id, status, start_date, end_date, CASE WHEN start_date > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END AS not_started, CASE WHEN end_date < CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END AS expired FROM Surveys WITH (UPDLOCK, HOLDLOCK) WHERE id = ?').get(req.params.id);
     if (!survey) return res.status(404).json({ error: 'Không tìm thấy khảo sát' });
     if (survey.status !== 'ACTIVE') return res.status(409).json({ error: 'Khảo sát hiện không mở nhận phản hồi' });
-    const today = new Date(new Date().toDateString());
-    if (survey.start_date && new Date(survey.start_date) > today) return res.status(400).json({ error: 'Khảo sát chưa đến ngày bắt đầu' });
-    if (survey.end_date && new Date(survey.end_date) < today) return res.status(409).json({ error: 'Khảo sát đã hết hạn' });
-    const recipient = await db.prepare('SELECT id FROM SurveyRecipients WHERE survey_id = ? AND customer_id = ?').get(req.params.id, customer.id);
+    if (survey.not_started) return res.status(400).json({ error: 'Khảo sát chưa đến ngày bắt đầu' });
+    if (survey.expired) return res.status(409).json({ error: 'Khảo sát đã hết hạn' });
+    const recipient = await tx.prepare('SELECT id FROM SurveyRecipients WHERE survey_id = ? AND customer_id = ?').get(req.params.id, customer.id);
     if (!recipient) return res.status(403).json({ error: 'Khảo sát này chưa được gửi đến tài khoản của bạn' });
-    const alreadyDone = await db.prepare('SELECT id FROM SurveyResults WHERE survey_id = ? AND customer_id = ?').get(req.params.id, customer.id);
+    const alreadyDone = await tx.prepare('SELECT id FROM SurveyResults WHERE survey_id = ? AND customer_id = ?').get(req.params.id, customer.id);
     if (alreadyDone) return res.status(409).json({ error: 'Bạn đã thực hiện khảo sát này rồi' });
     const { answers } = req.body;
     if (!Array.isArray(answers) || !answers.length) return res.status(400).json({ error: 'Vui lòng trả lời ít nhất một câu hỏi' });
-    const questions = await db.prepare('SELECT id, question_text, question_type, options, is_required FROM Questions WHERE survey_id = ?').all(req.params.id);
+    const questions = await tx.prepare('SELECT id, question_text, question_type, options, is_required FROM Questions WHERE survey_id = ?').all(req.params.id);
 
     const answeredQuestionIds = new Set(
       answers
@@ -2070,12 +2243,12 @@ app.post('/api/customer/surveys/:id/submit', authMiddleware, requireRole('CUSTOM
       normalizedAnswers.push({ question_id: questionId, answer_value: Array.isArray(value) ? JSON.stringify(value) : value });
     }
 
-    await db.transaction(async tx => {
       const resultRow = await tx.prepare('INSERT INTO SurveyResults (survey_id, customer_id) VALUES (?, ?)').run(req.params.id, customer.id);
       for (const answer of normalizedAnswers) {
         await tx.prepare('INSERT INTO SurveyAnswers (survey_result_id, question_id, answer_value) VALUES (?, ?, ?)').run(resultRow.lastInsertRowid, answer.question_id, answer.answer_value);
       }
     });
+    if (res.headersSent) return;
     res.status(201).json({ message: 'Nộp khảo sát thành công! Cảm ơn bạn đã tham gia.' });
   } catch (err) {
     if (isUniqueConstraintError(err)) return res.status(409).json({ error: 'Bạn đã thực hiện khảo sát này rồi' });
@@ -2089,20 +2262,21 @@ app.get('/api/customer/feedbacks', authMiddleware, requireRole('CUSTOMER'), asyn
     const customer = await db.prepare('SELECT id FROM Customers WHERE account_id = ?').get(req.user.id);
     if (!customer) return res.json([]);
     const feedbacks = await db.prepare('SELECT f.*, p.name as product_name FROM Feedbacks f JOIN Products p ON f.product_id = p.id WHERE f.customer_id = ? ORDER BY f.created_at DESC').all(customer.id);
-    res.json(feedbacks);
+    listResponse(res,feedbacks,req.query,{searchFields:['id','product_name','content','reply_content'],sortFields:['id','rating','created_at']});
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendKnownError(res,err);
   }
 });
 
 app.post('/api/customer/feedbacks', authMiddleware, requireRole('CUSTOMER'), async (req, res) => {
   try {
-    const account = await db.prepare('SELECT status FROM Accounts WHERE id = ?').get(req.user.id);
+    await db.transaction(async tx => {
+    const account = await tx.prepare('SELECT status FROM Accounts WHERE id = ?').get(req.user.id);
     if (account && account.status === 'LOCKED') {
       return res.status(403).json({ error: 'Tài khoản của bạn đã bị khóa và không thể gửi đánh giá mới.' });
     }
 
-    const customer = await db.prepare('SELECT id FROM Customers WHERE account_id = ?').get(req.user.id);
+    const customer = await tx.prepare('SELECT id FROM Customers WHERE account_id = ?').get(req.user.id);
     if (!customer) return res.status(400).json({ error: 'Không tìm thấy hồ sơ khách hàng' });
     const { product_id, rating, content } = req.body;
     const productId = Number(product_id);
@@ -2112,20 +2286,22 @@ app.post('/api/customer/feedbacks', authMiddleware, requireRole('CUSTOMER'), asy
     const normalizedContent = String(content || '').trim() || null;
     if (normalizedContent && normalizedContent.length > 2000) return res.status(400).json({ error: 'Nội dung đánh giá không được vượt quá 2000 ký tự' });
 
-    // Kiểm tra trạng thái kinh doanh của sản phẩm (chỉ Đang kinh doanh - OFFICIAL mới nhận đánh giá)
-    const product = await db.prepare('SELECT id, name, launch_status FROM Products WHERE id = ?').get(productId);
+    // Kiểm tra trạng thái kinh doanh của sản phẩm (chỉ Đang bán - OFFICIAL mới nhận đánh giá)
+    const product = await tx.prepare('SELECT id, name, launch_status FROM Products WHERE id = ?').get(productId);
     if (!product) return res.status(404).json({ error: 'Không tìm thấy sản phẩm' });
     if (product.launch_status !== 'OFFICIAL') {
-      return res.status(400).json({ error: 'Sản phẩm này đã ngừng kinh doanh và đóng nhận đánh giá mới.' });
+      return res.status(400).json({ error: 'Sản phẩm này đã ngừng bán và đóng nhận đánh giá mới.' });
     }
 
     // Kiểm tra khách hàng đã đánh giá sản phẩm này chưa (chỉ được 1 lần)
-    const existing = await db.prepare('SELECT id FROM Feedbacks WHERE customer_id = ? AND product_id = ?').get(customer.id, productId);
+    const existing = await tx.prepare('SELECT id FROM Feedbacks WHERE customer_id = ? AND product_id = ?').get(customer.id, productId);
     if (existing) {
       return res.status(409).json({ error: 'Bạn đã đánh giá sản phẩm này rồi. Mỗi sản phẩm chỉ được gửi đánh giá 1 lần.' });
     }
 
-    await db.prepare('INSERT INTO Feedbacks (customer_id, product_id, rating, content) VALUES (?, ?, ?, ?)').run(customer.id, productId, ratingValue, normalizedContent);
+    await tx.prepare('INSERT INTO Feedbacks (customer_id, product_id, rating, content) VALUES (?, ?, ?, ?)').run(customer.id, productId, ratingValue, normalizedContent);
+    });
+    if (res.headersSent) return;
     res.status(201).json({ message: 'Gửi đánh giá thành công! Cảm ơn bạn.' });
   } catch (err) {
     if (isUniqueConstraintError(err)) return res.status(409).json({ error: 'Bạn đã đánh giá sản phẩm này rồi. Mỗi sản phẩm chỉ được gửi đánh giá 1 lần.' });
@@ -2148,7 +2324,9 @@ app.put('/api/customer/feedbacks/:id', authMiddleware, requireRole('CUSTOMER'), 
     const customer = await db.prepare('SELECT id FROM Customers WHERE account_id = ?').get(req.user.id);
     if (!customer) return res.status(400).json({ error: 'Không tìm thấy hồ sơ khách hàng' });
 
-    const existing = await db.prepare('SELECT * FROM Feedbacks WHERE id = ? AND customer_id = ?').get(feedbackId, customer.id);
+    await db.transaction(async tx => {
+      await checkRecordVersion(tx,'Feedbacks',feedbackId,req.body);
+    const existing = await tx.prepare('SELECT * FROM Feedbacks WITH (UPDLOCK, HOLDLOCK) WHERE id = ? AND customer_id = ?').get(feedbackId, customer.id);
     if (!existing) {
       return res.status(404).json({ error: 'Không tìm thấy đánh giá hoặc bạn không có quyền sửa đánh giá này' });
     }
@@ -2167,15 +2345,15 @@ app.put('/api/customer/feedbacks/:id', authMiddleware, requireRole('CUSTOMER'), 
       return res.status(400).json({ error: 'Nội dung đánh giá không được vượt quá 2000 ký tự' });
     }
 
-    await db.transaction(async tx => {
       await tx.prepare(`
         INSERT INTO FeedbackAuditLog (feedback_id, customer_id, old_rating, new_rating, old_content, new_content, action)
         VALUES (?, ?, ?, ?, ?, ?, 'EDIT')
       `).run(feedbackId, customer.id, existing.rating, ratingValue, existing.content, normalizedContent);
 
-      await tx.prepare('UPDATE Feedbacks SET rating = ?, content = ? WHERE id = ?').run(ratingValue, normalizedContent, feedbackId);
+      await tx.prepare('UPDATE Feedbacks SET rating = ?, content = ?, updated_at=GETDATE() WHERE id = ?').run(ratingValue, normalizedContent, feedbackId);
     });
 
+    if (res.headersSent) return;
     res.json({ message: 'Cập nhật đánh giá thành công!' });
   } catch (err) {
     sendKnownError(res, err);

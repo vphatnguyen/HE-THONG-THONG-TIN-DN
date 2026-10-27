@@ -1,3 +1,4 @@
+let editingAccountVersion, editingSupplierVersion;
 /* ============================================================
    admin.js – Admin Module: Accounts, Products, Suppliers, DB Console
    ============================================================ */
@@ -7,12 +8,14 @@ let currentAccountsList = [];
 let allAccountsList = [];
 
 async function renderAdminAccounts() {
+  const requestedPage=state.currentPage;
   setPageHeader('👥 Quản lý Tài khoản Nội bộ', 'Phân quyền và quản lý tài khoản quản trị nội bộ (Admin, Manager)',
     `<button class="btn btn-primary" onclick="openCreateAccountModal()">➕ Thêm tài khoản</button>`);
   showLoading();
   try {
     const accounts = await api('GET', '/api/admin/accounts');
     allAccountsList = accounts;
+    if (requestedPage!==state.currentPage) return;
     renderAccountsTable(accounts);
   } catch (e) { toast(e.message, 'error'); }
 }
@@ -34,7 +37,7 @@ function renderAccountRowsHtml(accounts) {
     : accounts.filter(x => x.role === 'ADMIN').length;
 
   if (accounts.length === 0) {
-    return `<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:40px">Không tìm thấy tài khoản nào</td></tr>`;
+    return `<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:40px">Không tìm thấy tài khoản nào</td></tr>`;
   }
 
   return accounts.map(a => {
@@ -45,9 +48,9 @@ function renderAccountRowsHtml(accounts) {
     if (isOnlyAdmin) {
       deleteBtnHtml = `<button class="btn btn-trash btn-sm" style="opacity:0.4;cursor:not-allowed;" title="Không thể xóa tài khoản Admin duy nhất trong hệ thống" onclick="toast('Không thể xóa tài khoản Admin khi hệ thống chỉ còn duy nhất 1 Admin!', 'error')"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>`;
     } else if (isCurrentUser) {
-      deleteBtnHtml = `<button class="btn btn-trash btn-sm" title="Xóa tài khoản hiện tại (Bạn sẽ bị đăng xuất)" onclick="deleteAccount(${a.id},'${a.full_name.replace(/'/g, "\\'")}')"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>`;
+      deleteBtnHtml = `<button class="btn btn-trash btn-sm" title="Xóa tài khoản hiện tại (Bạn sẽ bị đăng xuất)" onclick="deleteAccount(${a.id},${escapeHtml(JSON.stringify(a.full_name))})"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>`;
     } else {
-      deleteBtnHtml = `<button class="btn btn-trash btn-sm" title="Xóa tài khoản" onclick="deleteAccount(${a.id},'${a.full_name.replace(/'/g, "\\'")}')"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>`;
+      deleteBtnHtml = `<button class="btn btn-trash btn-sm" title="Xóa tài khoản" onclick="deleteAccount(${a.id},${escapeHtml(JSON.stringify(a.full_name))})"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>`;
     }
 
     let lockBtnHtml = '';
@@ -56,14 +59,13 @@ function renderAccountRowsHtml(accounts) {
     } else if (isOnlyAdmin && a.status === 'ACTIVE') {
       lockBtnHtml = `<button class="btn btn-sm" style="background:#64748b;color:#fff;border:none;opacity:0.4;cursor:not-allowed;" disabled title="Không thể khóa tài khoản Admin duy nhất trong hệ thống">🔒</button>`;
     } else if (a.status === 'ACTIVE') {
-      lockBtnHtml = `<button class="btn btn-sm" style="background:#214e34;color:#fff;border:none;padding:4px 8px;" onclick="toggleAdminAccountStatus(${a.id},'LOCKED','${a.full_name.replace(/'/g, "\\'")}')" title="Khóa tài khoản">🔒</button>`;
+      lockBtnHtml = `<button class="btn btn-sm" style="background:#214e34;color:#fff;border:none;padding:4px 8px;" onclick="toggleAdminAccountStatus(${a.id},'LOCKED',${escapeHtml(JSON.stringify(a.full_name))})" title="Khóa tài khoản">🔒</button>`;
     } else {
-      lockBtnHtml = `<button class="btn btn-sm" style="background:#214e34;color:#fff;border:none;padding:4px 8px;" onclick="toggleAdminAccountStatus(${a.id},'ACTIVE','${a.full_name.replace(/'/g, "\\'")}')" title="Mở khóa tài khoản">🔓</button>`;
+      lockBtnHtml = `<button class="btn btn-sm" style="background:#214e34;color:#fff;border:none;padding:4px 8px;" onclick="toggleAdminAccountStatus(${a.id},'ACTIVE',${escapeHtml(JSON.stringify(a.full_name))})" title="Mở khóa tài khoản">🔓</button>`;
     }
 
     return `
-      <tr class="row-clickable" title="💡 Nhấp đúp (Double-click) để xem và sửa thông tin" ondblclick="openEditAccountModalById(${a.id})">
-        <td><span style="color:var(--text-muted)">#${a.id}</span></td>
+      <tr class="row-clickable" title="Nhấp để xem chi tiết" tabindex="0" onclick="openAccountDetail(${a.id})" onkeydown="if(event.target===this && event.key==='Enter')openAccountDetail(${a.id})">
         <td><strong style="color:var(--rose-400,#214e34);font-family:monospace;font-size:13px">@${escapeHtml(a.username || '')}</strong></td>
         <td><strong>${escapeHtml(a.full_name)}</strong>${isCurrentUser ? ' <span style="font-size:10px;color:var(--text-muted)">(Bạn)</span>' : ''}</td>
         <td style="color:var(--text-secondary)">${escapeHtml(a.email || '—')}</td>
@@ -84,13 +86,14 @@ function renderAccountRowsHtml(accounts) {
 }
 
 function renderAccountTablePage(page = 1) {
-  const total = currentAccountsList.length;
+  const refined=refineList(currentAccountsList,'accounts');
+  const total = refined.length;
   const maxPage = Math.max(1, Math.ceil(total / ADMIN_ACCOUNT_PAGE_SIZE));
   if (page > maxPage) page = maxPage;
   adminAccountPage = page;
 
   const start = (adminAccountPage - 1) * ADMIN_ACCOUNT_PAGE_SIZE;
-  const pagedList = currentAccountsList.slice(start, start + ADMIN_ACCOUNT_PAGE_SIZE);
+  const pagedList = refined.slice(start, start + ADMIN_ACCOUNT_PAGE_SIZE);
 
   const tbody = document.getElementById('accounts-tbody');
   const countEl = document.getElementById('accounts-count');
@@ -100,7 +103,7 @@ function renderAccountTablePage(page = 1) {
     tbody.innerHTML = renderAccountRowsHtml(pagedList);
   }
   if (countEl) {
-    countEl.textContent = `Tổng: ${total} tài khoản · 💡 Nhấp đúp (Double-click) vào một dòng để xem và sửa thông tin`;
+    countEl.textContent = `Tổng: ${total} tài khoản · 💡 Nhấp vào một dòng để xem chi tiết`;
   }
   if (paginationEl) {
     paginationEl.innerHTML = renderPaginationBar({
@@ -118,7 +121,7 @@ function renderAccountsTable(accounts, searchParams = {}) {
 
   const html = `
     <div class="filter-bar">
-      <input type="text" id="acc-search" placeholder="🔍 Tìm tên, username, email..." value="${searchParams.search || ''}" oninput="debounceFilterAccounts()">
+      <input type="text" id="acc-search" placeholder="🔍 Tìm tên, username, email..." value="${escapeHtml(searchParams.search || '')}" oninput="debounceFilterAccounts()">
       <select id="acc-role" onchange="filterAccounts()">
         <option value="">Tất cả vai trò nội bộ</option>
         <option value="ADMIN" ${searchParams.role === 'ADMIN' ? 'selected' : ''}>👑 Admin</option>
@@ -135,7 +138,7 @@ function renderAccountsTable(accounts, searchParams = {}) {
     <div class="table-wrapper">
       <table>
         <thead><tr>
-          <th>ID</th><th>USERNAME</th><th>Họ và tên</th><th>Email</th><th>Số ĐT</th>
+          <th>USERNAME</th><th>Họ và tên</th><th>Email</th><th>Số ĐT</th>
           <th>Vai trò</th><th>Trạng thái</th><th>Ngày tạo</th><th>Hành động</th>
         </tr></thead>
         <tbody id="accounts-tbody"></tbody>
@@ -162,13 +165,17 @@ async function toggleAdminAccountStatus(id, newStatus, name) {
 }
 
 function resetAdminAccountsFilters() {
+  listToolsState['accounts']={};
+  resetVisibleListTools('accounts');
   const s = document.getElementById('acc-search'); if (s) s.value = '';
   const r = document.getElementById('acc-role'); if (r) r.value = '';
   const st = document.getElementById('acc-status'); if (st) st.value = '';
   filterAccounts();
 }
 
+let filterAccountsSequence=0;
 async function filterAccounts() {
+  const sequence=++filterAccountsSequence;
   const search = document.getElementById('acc-search')?.value.trim() || '';
   const role = document.getElementById('acc-role')?.value || '';
   const status = document.getElementById('acc-status')?.value || '';
@@ -178,6 +185,7 @@ async function filterAccounts() {
   if (status) params.append('status', status);
   try {
     const accounts = await api('GET', `/api/admin/accounts?${params}`);
+    if(sequence!==filterAccountsSequence)return;
     renderAccountsTable(accounts, { search, role, status });
   } catch (e) { toast(e.message, 'error'); }
 }
@@ -223,6 +231,7 @@ async function createAccount() {
 }
 
 function openEditAccountModal(a) {
+  editingAccountVersion=a.record_version;
   if (typeof a === 'string') a = JSON.parse(a.replace(/&quot;/g, '"'));
   const totalAdmins = allAccountsList.length
     ? allAccountsList.filter(x => x.role === 'ADMIN').length
@@ -239,9 +248,9 @@ function openEditAccountModal(a) {
     <div class="form-row">
       <div class="form-group"><label>Tên đăng nhập *</label><input id="e-username" value="${escapeHtml(a.username || '')}" autocomplete="off"></div>
       <div class="form-group">
-        <label>Mật khẩu *</label>
+        <label>Mật khẩu ${passwordNote(a.password)}</label>
         <div style="display:flex;gap:6px">
-          <input id="e-password" type="password" value="${escapeHtml(a.password || '')}" autocomplete="off" placeholder="Mật khẩu *" style="flex:1">
+          <input id="e-password" type="password" value="${escapeHtml(viewablePassword(a.password))}" autocomplete="off" placeholder="Để trống để giữ mật khẩu cũ" style="flex:1">
           <button type="button" class="btn btn-secondary btn-sm" onclick="toggleInputVisibility('e-password', this)" title="Ẩn/Hiện mật khẩu">👁️</button>
         </div>
       </div>
@@ -283,6 +292,7 @@ async function updateAccount(id) {
     const role = roleEl && !roleEl.disabled ? roleEl.value : (acc ? acc.role : 'ADMIN');
     const status = statusEl && !statusEl.disabled ? statusEl.value : (acc ? acc.status : 'ACTIVE');
     const payload = {
+      _version:editingAccountVersion,
       username: document.getElementById('e-username').value.trim(),
       password: document.getElementById('e-password').value,
       full_name: document.getElementById('e-fullname').value.trim(),
@@ -355,17 +365,17 @@ function openEditProductModalById(id) {
 
 function renderProductRowsHtml(products) {
   if (products.length === 0) {
-    return `<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:40px">Không tìm thấy sản phẩm nào</td></tr>`;
+    return `<tr ${detailRow('openProductDetail',p.id)}><td colspan="8" style="text-align:center;color:var(--text-muted);padding:40px">Không tìm thấy sản phẩm nào</td></tr>`;
   }
   return products.map(p => `
-    <tr>
+    <tr ${detailRow('openProductDetail',p.id)}>
       <td><span style="color:var(--text-muted)">#${p.id}</span></td>
       <td>
         <div style="display:flex;align-items:center;gap:10px">
           <span style="font-size:22px">${getCategoryIcon(p.category)}</span>
           <div>
             <div style="font-weight:600;max-width:200px">${escapeHtml(p.name)}</div>
-            <div style="font-size:11px;color:var(--text-muted)">${p.description ? escapeHtml(p.description.substring(0, 50)) + '...' : ''}</div>
+
           </div>
         </div>
       </td>
@@ -375,16 +385,16 @@ function renderProductRowsHtml(products) {
       <td>
         <div>
           ${launchBadge(p.launch_status)}
-          ${p.review_count > 0 
-            ? `<div style="font-size:11px;color:#93c5fd;margin-top:3px;font-weight:500">💬 ${p.review_count} đánh giá</div>` 
+          ${p.review_count > 0
+            ? `<div style="font-size:11px;color:#93c5fd;margin-top:3px;font-weight:500">💬 ${p.review_count} đánh giá</div>`
             : `<div style="font-size:11px;color:var(--text-muted);margin-top:3px">Chưa có đánh giá</div>`}
         </div>
       </td>
       <td style="color:var(--text-muted);font-size:12px">${formatDate(p.created_at)}</td>
-      <td>
+      <td onclick="event.stopPropagation()">
         <div style="display:flex;gap:6px">
           <button class="btn btn-secondary btn-sm" onclick="openEditProductModalById(${p.id})" title="Chỉnh sửa sản phẩm">✏️</button>
-          <button class="btn btn-trash btn-sm" onclick="deleteProduct(${p.id},'${p.name.replace(/'/g, "\\'")}',${Number(p.review_count) || 0})" title="${Number(p.review_count) > 0 ? 'Ngừng kinh doanh (bảo toàn đánh giá CRM)' : 'Xóa vĩnh viễn'}"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>
+          <button class="btn btn-trash btn-sm" onclick="deleteProduct(${p.id},${escapeHtml(JSON.stringify(p.name))},${(Number(p.review_count) || 0)+(Number(p.survey_count) || 0)})" title="${(Number(p.review_count)+Number(p.survey_count)) > 0 ? 'Ngừng bán (bảo toàn đánh giá CRM)' : 'Xóa vĩnh viễn'}"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>
         </div>
       </td>
     </tr>
@@ -400,11 +410,12 @@ function renderProductPage(page) {
   const paginationEl = document.getElementById('products-pagination');
   if (!tbody) return;
 
-  const total = currentProductsList.length;
+  const refined=refineList(currentProductsList,'products');
+  const total = refined.length;
   const maxPage = Math.max(1, Math.ceil(total / ADMIN_PRODUCT_PAGE_SIZE));
   if (adminProductPage > maxPage) adminProductPage = maxPage;
   const start = (adminProductPage - 1) * ADMIN_PRODUCT_PAGE_SIZE;
-  const pagedList = currentProductsList.slice(start, start + ADMIN_PRODUCT_PAGE_SIZE);
+  const pagedList = refined.slice(start, start + ADMIN_PRODUCT_PAGE_SIZE);
 
   tbody.innerHTML = renderProductRowsHtml(pagedList);
 
@@ -419,8 +430,55 @@ function renderProductPage(page) {
 }
 
 const debounceProductFilters = debounce(applyProductFilters, 150);
+const debounceProductPriceFilters = debounce(applyProductPriceFilters, 300);
+
+function parseThousandPrice(value) {
+  const text=String(value ?? '').trim();
+  if (!text) return '';
+  let amount;
+  if (/^(?:\d+|\d{1,3}(?:\.\d{3})+)\s*[đ₫]$/i.test(text)) {
+    amount=Number(text.replace(/[.\sđ₫]/gi,''));
+  } else if (/^\d+(?:,\d{1,3})?$/.test(text)) {
+    amount=Math.round(Number(text.replace(',','.'))*1000);
+  } else {
+    throw new Error('Nhập giá theo nghìn, ví dụ 150 = 150.000đ.');
+  }
+  if (!Number.isSafeInteger(amount) || amount<0) throw new Error('Giá nhập vượt phạm vi cho phép.');
+  return String(amount);
+}
+function displayProductPrice(value) {
+  return value === '' || value === null || value === undefined ? '' : Number(value).toLocaleString('vi-VN')+'đ';
+}
+function editProductPriceInput(input) {
+  try {
+    const amount=parseThousandPrice(input.value);
+    input.value=amount === '' ? '' : String(Number(amount)/1000).replace('.',',');
+    input.setCustomValidity('');
+  } catch (_) { /* Preserve invalid text so it can be corrected. */ }
+}
+function formatProductPriceInput(input) {
+  try {
+    input.value=displayProductPrice(parseThousandPrice(input.value));
+    input.setCustomValidity('');
+  } catch(error) { input.setCustomValidity(error.message); }
+}
+function applyProductPriceFilters() {
+  const min=document.getElementById('prod-minprice');
+  const max=document.getElementById('prod-maxprice');
+  if (!min || !max) return;
+  try {
+    const min_price=parseThousandPrice(min.value), max_price=parseThousandPrice(max.value);
+    if (min_price !== '' && max_price !== '' && Number(min_price)>Number(max_price)) throw new Error('Giá từ phải nhỏ hơn hoặc bằng giá đến.');
+    if (document.activeElement!==min) min.value=displayProductPrice(min_price);
+    if (document.activeElement!==max) max.value=displayProductPrice(max_price);
+    min.setCustomValidity(''); max.setCustomValidity('');
+    productFilters={...productFilters,min_price,max_price};
+    applyProductFilters();
+  } catch(error) { toast(error.message,'error'); }
+}
 
 async function fetchAndRenderProducts(filters = {}) {
+  const requestedPage=state.currentPage;
   productFilters = filters;
   try {
     const params = new URLSearchParams();
@@ -436,7 +494,7 @@ async function fetchAndRenderProducts(filters = {}) {
 
     const html = `
       <div class="filter-bar">
-        <input type="text" id="prod-search" placeholder="🔍 Tên sản phẩm..." value="${filters.search || ''}" oninput="debounceProductFilters()">
+        <input type="text" id="prod-search" placeholder="🔍 Tên sản phẩm..." value="${escapeHtml(filters.search || '')}" oninput="debounceProductFilters()">
         <select id="prod-cat" onchange="applyProductFilters()">
           <option value="">Tất cả danh mục</option>
           ${['Son môi', 'Kem dưỡng da', 'Serum', 'Kem chống nắng', 'Phấn phủ', 'Sữa rửa mặt', 'Toner', 'Mặt nạ']
@@ -447,11 +505,17 @@ async function fetchAndRenderProducts(filters = {}) {
         </select>
         <select id="prod-launch" onchange="applyProductFilters()">
           <option value="">Tất cả trạng thái</option>
-          <option value="OFFICIAL" ${filters.launch_status === 'OFFICIAL' ? 'selected' : ''}>✓ Đang kinh doanh (Mở đánh giá)</option>
-          <option value="UPCOMING" ${filters.launch_status === 'UPCOMING' ? 'selected' : ''}>🚫 Ngừng kinh doanh (Đóng đánh giá)</option>
+          <option value="OFFICIAL" ${filters.launch_status === 'OFFICIAL' ? 'selected' : ''}>✓ Đang bán (Mở đánh giá)</option>
+          <option value="UPCOMING" ${filters.launch_status === 'UPCOMING' ? 'selected' : ''}>🚫 Ngừng bán (Đóng đánh giá)</option>
         </select>
-        <input type="number" id="prod-minprice" placeholder="Giá từ (₫)" value="${filters.min_price || ''}" style="max-width:120px" oninput="debounceProductFilters()">
-        <input type="number" id="prod-maxprice" placeholder="Đến (₫)" value="${filters.max_price || ''}" style="max-width:120px" oninput="debounceProductFilters()">
+        <div class="product-price-filter" role="group" aria-label="Khoảng giá">
+          <div class="product-price-controls">
+            <input type="text" inputmode="decimal" id="prod-minprice" aria-label="Giá từ" aria-describedby="prod-price-help" placeholder="Giá từ" value="${displayProductPrice(filters.min_price)}" onfocus="editProductPriceInput(this)" onblur="formatProductPriceInput(this)" oninput="this.setCustomValidity('');debounceProductPriceFilters()">
+            <span>–</span>
+            <input type="text" inputmode="decimal" id="prod-maxprice" aria-label="Giá đến" aria-describedby="prod-price-help" placeholder="Giá đến" value="${displayProductPrice(filters.max_price)}" onfocus="editProductPriceInput(this)" onblur="formatProductPriceInput(this)" oninput="this.setCustomValidity('');debounceProductPriceFilters()">
+          </div>
+          <small id="prod-price-help">Nhập theo nghìn: 150 = 150.000đ.</small>
+        </div>
         <select id="prod-sort" onchange="applyProductFilters()">
           <option value="created_at" ${filters.sort_by === 'created_at' ? 'selected' : ''}>Mới nhất</option>
           <option value="price" ${filters.sort_by === 'price' ? 'selected' : ''}>Theo giá</option>
@@ -469,26 +533,29 @@ async function fetchAndRenderProducts(filters = {}) {
         <table>
           <thead><tr>
             <th>ID</th><th>Sản phẩm</th><th>Danh mục</th><th>Nhà cung cấp</th>
-            <th>Giá</th><th>Trạng thái kinh doanh</th><th>Ngày tạo</th><th>Hành động</th>
+            <th>Giá</th><th>Trạng thái bán</th><th>Ngày tạo</th><th>Hành động</th>
           </tr></thead>
           <tbody id="products-tbody"></tbody>
         </table>
       </div>
       <div id="products-pagination"></div>
     `;
+    if (requestedPage!==state.currentPage) return;
     setPageContent(html);
     renderProductPage(1);
   } catch (e) { toast(e.message, 'error'); }
 }
 
+let applyProductFiltersSequence=0;
 async function applyProductFilters() {
+  const sequence=++applyProductFiltersSequence;
   const filters = {
     search: document.getElementById('prod-search')?.value.trim() || '',
     category: document.getElementById('prod-cat')?.value || '',
     supplier_id: document.getElementById('prod-supplier')?.value || '',
     launch_status: document.getElementById('prod-launch')?.value || '',
-    min_price: document.getElementById('prod-minprice')?.value || '',
-    max_price: document.getElementById('prod-maxprice')?.value || '',
+    min_price: productFilters.min_price ?? '',
+    max_price: productFilters.max_price ?? '',
     sort_by: document.getElementById('prod-sort')?.value || 'created_at',
     sort_dir: document.getElementById('prod-sortdir')?.value || 'desc',
   };
@@ -500,6 +567,7 @@ async function applyProductFilters() {
       const params = new URLSearchParams();
       Object.entries(filters).forEach(([k, v]) => { if (v) params.append(k, v); });
       const products = await api('GET', `/api/admin/products?${params}`);
+    if(sequence!==applyProductFiltersSequence)return;
       currentProductsList = products || [];
       renderProductPage(1);
     } catch (e) { toast(e.message, 'error'); }
@@ -509,12 +577,16 @@ async function applyProductFilters() {
 }
 
 function resetProductFilters() {
+  listToolsState['products']={};
+  resetVisibleListTools('products');
   const s = document.getElementById('prod-search'); if (s) s.value = '';
   const c = document.getElementById('prod-cat'); if (c) c.value = '';
   const sup = document.getElementById('prod-supplier'); if (sup) sup.value = '';
   const l = document.getElementById('prod-launch'); if (l) l.value = '';
   const min = document.getElementById('prod-minprice'); if (min) min.value = '';
   const max = document.getElementById('prod-maxprice'); if (max) max.value = '';
+  [min,max].forEach(input=>input?.setCustomValidity(''));
+  productFilters={...productFilters,min_price:'',max_price:''};
   const sort = document.getElementById('prod-sort'); if (sort) sort.value = 'created_at';
   const sdir = document.getElementById('prod-sortdir'); if (sdir) sdir.value = 'desc';
   applyProductFilters();
@@ -538,10 +610,10 @@ async function openCreateProductModal() {
       <div class="form-group"><label>Nhà cung cấp</label><select id="mp-supplier"><option value="">-- Chọn NCC --</option>${supOptions}</select></div>
     </div>
     <div class="form-group"><label>Giá bán (₫)</label><input id="mp-price" type="number" placeholder="0" min="0"></div>
-    <div class="form-group"><label>Trạng thái kinh doanh</label>
+    <div class="form-group"><label>Trạng thái bán</label>
       <select id="mp-launch">
-        <option value="OFFICIAL">✓ Đang kinh doanh (Mở đánh giá)</option>
-        <option value="UPCOMING">🚫 Ngừng kinh doanh (Đóng đánh giá)</option>
+        <option value="OFFICIAL">✓ Đang bán (Mở đánh giá)</option>
+        <option value="UPCOMING">🚫 Ngừng bán (Đóng đánh giá)</option>
       </select>
     </div>
     <div class="form-group"><label>Mô tả sản phẩm</label><textarea id="mp-desc" placeholder="Mô tả chi tiết sản phẩm..."></textarea></div>
@@ -616,10 +688,10 @@ async function openEditProductModal(p) {
       </div>
     </div>
     <div class="form-group"><label>Giá bán (₫)</label><input id="ep-price" type="number" value="${p.price}" min="0"></div>
-    <div class="form-group"><label>Trạng thái kinh doanh</label>
+    <div class="form-group"><label>Trạng thái bán</label>
       <select id="ep-launch">
-        <option value="OFFICIAL" ${p.launch_status === 'OFFICIAL' ? 'selected' : ''}>✓ Đang kinh doanh (Mở đánh giá)</option>
-        <option value="UPCOMING" ${p.launch_status === 'UPCOMING' ? 'selected' : ''}>🚫 Ngừng kinh doanh (Đóng đánh giá)</option>
+        <option value="OFFICIAL" ${p.launch_status === 'OFFICIAL' ? 'selected' : ''}>✓ Đang bán (Mở đánh giá)</option>
+        <option value="UPCOMING" ${p.launch_status === 'UPCOMING' ? 'selected' : ''}>🚫 Ngừng bán (Đóng đánh giá)</option>
       </select>
     </div>
     <div class="form-group"><label>Mô tả</label><textarea id="ep-desc">${escapeHtml(p.description || '')}</textarea></div>
@@ -643,6 +715,7 @@ async function updateProduct(id) {
 
   try {
     await api('PUT', `/api/admin/products/${id}`, {
+      _version:currentEditingProduct?.record_version,
       name: nameVal,
       category: hasReviews ? p.category : (catEl ? catEl.value : p.category),
       supplier_id: hasReviews ? (p.supplier_id || null) : (supEl && supEl.value ? Number(supEl.value) : null),
@@ -660,13 +733,13 @@ async function deleteProduct(id, name, reviewCount) {
   const count = Number(reviewCount) || 0;
   if (count > 0) {
     const ok = confirm(
-      `Sản phẩm "${name}" đã có ${count} lượt đánh giá từ khách hàng.\n\n` +
-      `Để bảo toàn dữ liệu thống kê CRM, sản phẩm sẽ KHÔNG bị xóa vĩnh viễn khỏi Database mà tự động chuyển sang trạng thái "Ngừng kinh doanh (Đóng đánh giá)".\n\n` +
+      `Sản phẩm "${name}" đã có ${count} lượt đánh giá hoặc liên kết khảo sát.\n\n` +
+      `Để bảo toàn dữ liệu thống kê CRM, sản phẩm sẽ KHÔNG bị xóa vĩnh viễn khỏi Database mà tự động chuyển sang trạng thái "Ngừng bán (Đóng đánh giá)".\n\n` +
       `Bạn có đồng ý tiếp tục?`
     );
     if (!ok) return;
   } else {
-    if (!confirm(`Sản phẩm "${name}" chưa có đánh giá nào.\n\nBạn có chắc chắn muốn xóa vĩnh viễn sản phẩm này khỏi cơ sở dữ liệu?`)) return;
+    if (!confirm(`Sản phẩm "${name}" chưa có đánh giá hoặc liên kết khảo sát nào.\n\nBạn có chắc chắn muốn xóa vĩnh viễn sản phẩm này khỏi cơ sở dữ liệu?`)) return;
   }
 
   try {
@@ -681,11 +754,13 @@ let currentSuppliersList = [];
 let currentEditingSupplier = null;
 
 async function renderAdminSuppliers() {
+  const requestedPage=state.currentPage;
   setPageHeader('🏪 Quản lý Nhà cung cấp', 'Quản lý đối tác nhãn hàng & theo dõi chất lượng sản phẩm qua đánh giá khách hàng',
     `<button class="btn btn-primary" onclick="openCreateSupplierModal()">➕ Thêm nhà cung cấp</button>`);
   showLoading();
   try {
     const suppliers = await api('GET', '/api/admin/suppliers');
+    if (requestedPage!==state.currentPage) return;
     renderSuppliersTable(suppliers);
   } catch (e) { toast(e.message, 'error'); }
 }
@@ -698,52 +773,7 @@ function openEditSupplierModalById(id) {
 const debounceFilterSuppliers = debounce(filterSuppliers, 150);
 
 function renderSupplierRowsHtml(suppliers) {
-  if (suppliers.length === 0) {
-    return `<tr><td colspan="9" style="text-align:center;padding:40px;color:var(--text-muted)">Không tìm thấy nhà cung cấp nào</td></tr>`;
-  }
-  return suppliers.map(s => {
-    const prodCount = Number(s.product_count) || 0;
-    const revCount = Number(s.review_count) || 0;
-    let ratingHtml = `<span style="color:var(--text-muted);font-size:12px">Chưa có đánh giá</span>`;
-    if (revCount > 0 && s.avg_rating !== null && s.avg_rating !== undefined) {
-      const avg = Number(s.avg_rating);
-      const isLow = avg < 3.0;
-      const badgeStyle = isLow 
-        ? 'background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3);padding:2px 8px;border-radius:12px;font-weight:600' 
-        : 'color:#fbbf24;font-weight:600';
-      ratingHtml = `
-        <div style="display:flex;align-items:center;gap:6px">
-          <span style="${badgeStyle}">${isLow ? '⚠️ ' : '⭐ '}${avg.toFixed(1)}</span>
-          <span style="font-size:11px;color:var(--text-muted)">(${revCount} đánh giá)</span>
-        </div>
-      `;
-    }
-
-    return `
-      <tr>
-        <td><span style="color:var(--text-muted)">#${s.id}</span></td>
-        <td>
-          <strong style="color:var(--text-primary);font-size:14px">${escapeHtml(s.name)}</strong>
-        </td>
-        <td style="color:var(--text-secondary);font-size:13px">${s.contact_name ? escapeHtml(s.contact_name) : '—'}</td>
-        <td style="color:var(--text-secondary);font-size:12px">✉️ ${escapeHtml(s.email || '—')}</td>
-        <td style="font-size:12px;font-weight:500;color:var(--text-primary)">📞 ${escapeHtml(s.phone || '—')}</td>
-        <td>
-          <span class="tag" style="font-size:12px;background:rgba(99,102,241,0.12);color:#818cf8;border:1px solid rgba(99,102,241,0.25)">
-            📦 <strong>${prodCount}</strong> sản phẩm
-          </span>
-        </td>
-        <td>${ratingHtml}</td>
-        <td>${statusBadge(s.status)}</td>
-        <td>
-          <div style="display:flex;gap:6px">
-            <button class="btn btn-secondary btn-sm" onclick="openEditSupplierModalById(${s.id})" title="Chỉnh sửa nhà cung cấp">✏️</button>
-            <button class="btn btn-trash btn-sm" onclick="deleteSupplier(${s.id},'${s.name.replace(/'/g, "\\'")}',${prodCount})" title="${prodCount > 0 ? 'Ngừng hợp tác (đang có sản phẩm)' : 'Xóa vĩnh viễn'}"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg></button>
-          </div>
-        </td>
-      </tr>
-    `;
-  }).join('');
+  return suppliers.map(s=>`<tr ${detailRow('openSupplierDetail',s.id)}><td>#${s.id}</td><td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.email || s.phone || '—')}</td><td>${statusBadge(s.status)}</td><td>${formatDate(s.created_at)}</td><td class="row-actions" onclick="event.stopPropagation()"><button class="btn btn-secondary btn-sm" onclick="openEditSupplierModalById(${s.id})">Sửa</button><button class="btn btn-trash btn-sm" onclick="deleteSupplier(${s.id},${escapeHtml(JSON.stringify(s.name))},${Number(s.product_count)||0})">${Number(s.product_count)>0?'Ngừng hợp tác':'Xóa'}</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty-cell">Không tìm thấy nhà cung cấp</td></tr>';
 }
 
 const ADMIN_SUPPLIER_PAGE_SIZE = 10;
@@ -755,11 +785,12 @@ function renderSupplierPage(page) {
   const paginationEl = document.getElementById('suppliers-pagination');
   if (!tbody) return;
 
-  const total = currentSuppliersList.length;
+  const refined=refineList(currentSuppliersList,'suppliers');
+  const total = refined.length;
   const maxPage = Math.max(1, Math.ceil(total / ADMIN_SUPPLIER_PAGE_SIZE));
   if (adminSupplierPage > maxPage) adminSupplierPage = maxPage;
   const start = (adminSupplierPage - 1) * ADMIN_SUPPLIER_PAGE_SIZE;
-  const pagedList = currentSuppliersList.slice(start, start + ADMIN_SUPPLIER_PAGE_SIZE);
+  const pagedList = refined.slice(start, start + ADMIN_SUPPLIER_PAGE_SIZE);
 
   tbody.innerHTML = renderSupplierRowsHtml(pagedList);
 
@@ -794,19 +825,7 @@ function renderSuppliersTable(suppliers) {
     </div>
     <div class="table-wrapper">
       <table>
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Tên nhà cung cấp</th>
-            <th>Người liên hệ</th>
-            <th>Email</th>
-            <th>Điện thoại</th>
-            <th>Sản phẩm</th>
-            <th>Điểm đánh giá TB</th>
-            <th>Trạng thái</th>
-            <th>Hành động</th>
-          </tr>
-        </thead>
+        <thead><tr><th>ID</th><th>Nhà cung cấp</th><th>Liên hệ</th><th>Trạng thái</th><th>Ngày tạo</th><th>Thao tác</th></tr></thead>
         <tbody id="suppliers-tbody"></tbody>
       </table>
     </div>
@@ -817,12 +836,16 @@ function renderSuppliersTable(suppliers) {
 }
 
 function resetSupplierFilters() {
+  listToolsState['suppliers']={};
+  resetVisibleListTools('suppliers');
   const s = document.getElementById('sup-search'); if (s) s.value = '';
   const st = document.getElementById('sup-status'); if (st) st.value = '';
   filterSuppliers();
 }
 
+let filterSuppliersSequence=0;
 async function filterSuppliers() {
+  const sequence=++filterSuppliersSequence;
   const search = document.getElementById('sup-search')?.value.trim() || '';
   const status = document.getElementById('sup-status')?.value || '';
   const params = new URLSearchParams();
@@ -830,6 +853,7 @@ async function filterSuppliers() {
   if (status) params.append('status', status);
   try {
     const suppliers = await api('GET', `/api/admin/suppliers?${params}`);
+    if(sequence!==filterSuppliersSequence)return;
     currentSuppliersList = suppliers || [];
     renderSupplierPage(1);
   } catch (e) { toast(e.message, 'error'); }
@@ -878,6 +902,7 @@ async function createSupplier() {
 }
 
 function openEditSupplierModal(s) {
+  editingSupplierVersion=s.record_version;
   currentEditingSupplier = s;
   const prodCount = Number(s.product_count) || 0;
   const hasProducts = prodCount > 0;
@@ -927,6 +952,7 @@ async function updateSupplier(id) {
 
   try {
     const res = await api('PUT', `/api/admin/suppliers/${id}`, {
+      _version:editingSupplierVersion,
       name: nameVal,
       contact_name: document.getElementById('es-contact').value.trim(),
       phone: document.getElementById('es-phone').value.trim(),
@@ -944,7 +970,7 @@ async function deleteSupplier(id, name, productCount) {
   if (count > 0) {
     const ok = confirm(
       `Nhà cung cấp "${name}" đang có ${count} sản phẩm liên kết.\n\n` +
-      `Để bảo toàn lịch sử sản phẩm và đánh giá CRM, nhà cung cấp sẽ KHÔNG bị xóa vĩnh viễn khỏi Database mà tự động chuyển sang trạng thái "Ngừng hợp tác" và toàn bộ sản phẩm liên quan sẽ chuyển sang "Ngừng kinh doanh (Đóng đánh giá)".\n\n` +
+      `Để bảo toàn lịch sử sản phẩm và đánh giá CRM, nhà cung cấp sẽ KHÔNG bị xóa vĩnh viễn khỏi Database mà tự động chuyển sang trạng thái "Ngừng hợp tác" và toàn bộ sản phẩm liên quan sẽ chuyển sang "Ngừng bán (Đóng đánh giá)".\n\n` +
       `Bạn có đồng ý tiếp tục?`
     );
     if (!ok) return;

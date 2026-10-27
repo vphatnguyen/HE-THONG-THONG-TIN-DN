@@ -1,6 +1,10 @@
+const { assertTestEnvironment } = require('./test-safety');
+const BASE_URL=process.env.E2E_BASE_URL || 'http://localhost:3100';
 const http = require('http');
 
 function request(options, body = null) {
+  const base=new URL(BASE_URL);
+  options={...options,hostname:base.hostname,port:Number(base.port || 80)};
   return new Promise((resolve, reject) => {
     const req = http.request(options, res => {
       let data = '';
@@ -20,6 +24,7 @@ function request(options, body = null) {
 }
 
 async function runTests() {
+  await assertTestEnvironment(BASE_URL);
   console.log('=== STARTING TEST: ADMIN ACCOUNTS & HASAKI PRODUCT REVIEWS ===');
 
   // 1. Test Admin Login with plain text password 'admin123'
@@ -54,10 +59,8 @@ async function runTests() {
   }
   console.log(`✓ Fetched ${accountsRes.body.length} accounts.`);
   const adminAcc = accountsRes.body.find(a => a.username === 'admin');
-  console.log(`  - Admin username: @${adminAcc?.username}, password: ${adminAcc?.password}`);
-  if (adminAcc?.password !== 'admin123') {
-    throw new Error(`Expected plain text password admin123, got ${adminAcc?.password}`);
-  }
+  if (!adminAcc || typeof adminAcc.password !== 'string') throw new Error('Account password compatibility field missing');
+  console.log('  Account fields and password compatibility format verified.');
 
   // 3. Test Admin Self-lock restriction
   console.log('\n[3] Testing Admin Self-lock restriction (Admin cannot lock self)...');

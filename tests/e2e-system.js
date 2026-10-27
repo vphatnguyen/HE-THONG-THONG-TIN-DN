@@ -1,3 +1,4 @@
+const { assertTestEnvironment } = require('./test-safety');
 const sql = require('msnodesqlv8');
 
 const BASE_URL = process.env.E2E_BASE_URL || 'http://localhost:3100';
@@ -65,9 +66,11 @@ async function login(username, password) {
 }
 
 async function setup() {
+  await assertTestEnvironment(BASE_URL, DB_DATABASE);
   pool = await sql.promises.open(`Driver={ODBC Driver 18 for SQL Server};Server=${DB_SERVER};Database=${DB_DATABASE};Trusted_Connection=yes;TrustServerCertificate=yes;`);
 
   await query(`
+    DELETE FROM FeedbackReplyHistory WHERE feedback_id IN (SELECT f.id FROM Feedbacks f JOIN Customers c ON c.id=f.customer_id JOIN Accounts a ON a.id=c.account_id WHERE a.username LIKE 'qa_e2e_%');
     DELETE FROM SurveyAnswers WHERE survey_result_id IN (
       SELECT sr.id FROM SurveyResults sr JOIN Surveys s ON s.id = sr.survey_id WHERE s.title LIKE '${QA_PREFIX}%'
     );
@@ -97,9 +100,9 @@ async function setup() {
       SELECT id,29,N'Nu',N'Da dầu',N'Trị mụn,Dưỡng ẩm' FROM Accounts WHERE username='${QA_PREFIX}customer_a';
     INSERT INTO Customers (account_id,age,gender,skin_type,beauty_preferences)
       SELECT id,41,N'Nam',N'Da khô',N'Chống lão hóa' FROM Accounts WHERE username='${QA_PREFIX}customer_b';
-    INSERT INTO Products (name,category,price,stock_quantity,launch_status)
-      VALUES (N'${QA_PREFIX}official',N'Test',100000,10,'OFFICIAL'),
-             (N'${QA_PREFIX}upcoming',N'Test',100000,0,'UPCOMING');
+    INSERT INTO Products (name,category,price,launch_status)
+      VALUES (N'${QA_PREFIX}official',N'Test',100000,'OFFICIAL'),
+             (N'${QA_PREFIX}upcoming',N'Test',100000,'UPCOMING');
   `);
 
   const ids = (await query(`

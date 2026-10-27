@@ -1,8 +1,9 @@
+const { assertTestEnvironment } = require('./test-safety');
 const { chromium } = require('playwright-core');
 const fs = require('fs');
 const path = require('path');
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
+const BASE_URL = process.env.E2E_BASE_URL || process.env.BASE_URL || 'http://localhost:3100';
 const EDGE_PATH = process.env.EDGE_PATH || 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
 
 function assert(cond, msg) {
@@ -10,6 +11,7 @@ function assert(cond, msg) {
 }
 
 async function run() {
+  await assertTestEnvironment(BASE_URL);
   console.log('--- STARTING VERIFICATION: PAGINATION & REACTIVE LIVE FILTERS ---');
   let browser;
   try {
@@ -104,24 +106,8 @@ async function run() {
     console.log('   Manager Customer Pagination Info:', custPagInfo);
     assert(custPagInfo.includes('10 dòng/trang'), 'Customer pagination must state 10 dòng/trang');
 
-    // Verify 8 columns in table header
     const headers = await page.$$eval('table thead th', ths => ths.map(t => t.textContent.trim()));
-    console.log('   Customer Table Headers:', headers);
-    assert(headers.length === 8, `Must have exactly 8 headers, found ${headers.length}`);
-    assert(headers[0] === 'Khách hàng', 'Col 1 must be Khách hàng');
-    assert(headers[1] === 'Tên tài khoản', 'Col 2 must be Tên tài khoản');
-    assert(headers[2] === 'Email', 'Col 3 must be Email');
-    assert(headers[3] === 'Số điện thoại', 'Col 4 must be Số điện thoại');
-    assert(headers[4] === 'Tương tác CRM', 'Col 5 must be Tương tác CRM');
-    assert(headers[5] === 'Trạng thái', 'Col 6 must be Trạng thái');
-    assert(headers[6] === 'Ngày tạo TK', 'Col 7 must be Ngày tạo TK');
-    assert(headers[7] === 'Hành động', 'Col 8 must be Hành động');
-
-    // Verify deleted columns are gone
-    assert(!headers.includes('Độ tuổi'), 'Độ tuổi must be removed from table headers');
-    assert(!headers.includes('Loại da'), 'Loại da must be removed from table headers');
-    assert(!headers.includes('Sở thích'), 'Sở thích must be removed from table headers');
-    assert(!headers.includes('Liên hệ'), 'Liên hệ must be renamed to Email');
+    assert(JSON.stringify(headers)===JSON.stringify(['ID khách hàng','Khách hàng','Liên hệ','Trạng thái','Ngày tạo','Thao tác']), 'Customer summary columns must match CRM list design');
 
     // Verify avatar styling
     const avatarColor = await page.$eval('.customer-avatar', el => {
@@ -186,15 +172,15 @@ async function run() {
     console.log(`   Customer products matching 'Son': ${searchCards}`);
     assert(searchCards > 0, 'Customer search should find items');
 
-    // Test Status dropdown (Ngừng kinh doanh)
+    // Test Status dropdown (Ngừng bán)
     await page.fill('#cust-home-search', '');
     await page.selectOption('#cust-home-status', 'UPCOMING');
     await page.waitForTimeout(300);
     const upcomingCount = await page.$$eval('#cust-home-products-grid .product-card', cards => cards.length);
     console.log(`   Discontinued products displayed: ${upcomingCount}`);
     if (upcomingCount > 0) {
-      const hasDiscontinuedBadge = await page.$eval('#cust-home-products-grid .product-card', el => el.textContent.includes('Ngừng kinh doanh'));
-      assert(hasDiscontinuedBadge, 'Discontinued product must display "Ngừng kinh doanh" badge');
+      const hasDiscontinuedBadge = await page.$eval('#cust-home-products-grid .product-card', el => el.textContent.includes('Ngừng bán'));
+      assert(hasDiscontinuedBadge, 'Discontinued product must display "Ngừng bán" badge');
     }
 
     // Reset button

@@ -1,0 +1,42 @@
+{
+  "database": "CosmeticsCRM_Refactor_E2E_DB",
+  "status": "PASS",
+  "checks": [
+    "approved columns removed",
+    "customer created_at retained",
+    "all row counts retained",
+    "product rating statistics retained",
+    "idempotent second run",
+    "constraints checked"
+  ],
+  "counts": [
+    {
+      "entity": "Accounts",
+      "n": 32
+    },
+    {
+      "entity": "Customers",
+      "n": 28
+    },
+    {
+      "entity": "Products",
+      "n": 39
+    },
+    {
+      "entity": "Feedbacks",
+      "n": 24
+    },
+    {
+      "entity": "Surveys",
+      "n": 28
+    },
+    {
+      "entity": "SurveyResults",
+      "n": 11
+    },
+    {
+      "entity": "SurveyAnswers",
+      "n": 17
+    }
+  ]
+}

@@ -20,6 +20,9 @@ GO
 -- ============================================================
 -- XÓA CÁC BẢNG CŨ NẾU TỒN TẠI (theo thứ tự ràng buộc khóa ngoại)
 -- ============================================================
+IF OBJECT_ID('dbo.FeedbackReplyHistory', 'U') IS NOT NULL DROP TABLE dbo.FeedbackReplyHistory;
+IF OBJECT_ID('dbo.SurveyProducts', 'U') IS NOT NULL DROP TABLE dbo.SurveyProducts;
+IF OBJECT_ID('dbo.SurveyRecipients', 'U') IS NOT NULL DROP TABLE dbo.SurveyRecipients;
 IF OBJECT_ID('dbo.SurveyAnswers', 'U') IS NOT NULL DROP TABLE dbo.SurveyAnswers;
 IF OBJECT_ID('dbo.SurveyResults', 'U') IS NOT NULL DROP TABLE dbo.SurveyResults;
 IF OBJECT_ID('dbo.Questions', 'U') IS NOT NULL DROP TABLE dbo.Questions;
@@ -38,11 +41,12 @@ GO
 
 -- Bảng 1: Accounts - Quản lý tài khoản và phân quyền
 CREATE TABLE dbo.Accounts (
+    record_version ROWVERSION NOT NULL,
     id          INT IDENTITY(1,1) PRIMARY KEY,
     username    NVARCHAR(50) NOT NULL UNIQUE,
     password    NVARCHAR(255) NOT NULL,
     full_name   NVARCHAR(100) NOT NULL,
-    email       NVARCHAR(100) UNIQUE,
+    email       NVARCHAR(100),
     phone       NVARCHAR(20),
     role        NVARCHAR(10) NOT NULL DEFAULT 'CUSTOMER'
                     CONSTRAINT CK_Accounts_role CHECK (role IN ('ADMIN','MANAGER','CUSTOMER')),
@@ -50,6 +54,9 @@ CREATE TABLE dbo.Accounts (
                     CONSTRAINT CK_Accounts_status CHECK (status IN ('ACTIVE','LOCKED')),
     created_at  DATETIME2 DEFAULT GETDATE()
 );
+GO
+
+CREATE UNIQUE INDEX UX_Accounts_Email_NotNull ON dbo.Accounts(email) WHERE email IS NOT NULL;
 GO
 
 -- Trigger chặn xóa tài khoản Admin khi chỉ còn duy nhất 1 Admin trong hệ thống
@@ -61,7 +68,7 @@ BEGIN
     SET NOCOUNT ON;
     IF EXISTS (SELECT 1 FROM deleted WHERE role = 'ADMIN')
     BEGIN
-        IF (SELECT COUNT(*) FROM dbo.Accounts WHERE role = 'ADMIN') = 0
+        IF (SELECT COUNT(*) FROM dbo.Accounts WHERE role = 'ADMIN' AND status='ACTIVE') = 0
         BEGIN
             RAISERROR (N'Không thể xóa tài khoản Admin khi hệ thống chỉ có duy nhất 1 Admin.', 16, 1);
             ROLLBACK TRANSACTION;
@@ -98,8 +105,6 @@ CREATE TABLE dbo.Customers (
     gender          NVARCHAR(10) CONSTRAINT CK_Customers_gender CHECK (gender IN (N'Nu',N'Nam',N'Khac')),
     skin_type       NVARCHAR(50),
     beauty_preferences NVARCHAR(255),
-    membership_tier NVARCHAR(10) DEFAULT 'BRONZE'
-                    CONSTRAINT CK_Customers_tier CHECK (membership_tier IN ('BRONZE','SILVER','GOLD','PLATINUM')),
     created_at      DATETIME2 DEFAULT GETDATE(),
     CONSTRAINT FK_Customers_Accounts FOREIGN KEY (account_id) REFERENCES dbo.Accounts(id) ON DELETE CASCADE
 );
@@ -107,6 +112,7 @@ GO
 
 -- Bảng 3: Suppliers - Nhà cung cấp mỹ phẩm
 CREATE TABLE dbo.Suppliers (
+    record_version ROWVERSION NOT NULL,
     id              INT IDENTITY(1,1) PRIMARY KEY,
     name            NVARCHAR(150) NOT NULL,
     contact_name    NVARCHAR(100),
@@ -121,12 +127,12 @@ GO
 
 -- Bảng 4: Products - Danh mục mỹ phẩm
 CREATE TABLE dbo.Products (
+    record_version ROWVERSION NOT NULL,
     id              INT IDENTITY(1,1) PRIMARY KEY,
     name            NVARCHAR(200) NOT NULL,
     category        NVARCHAR(50) NOT NULL,
     supplier_id     INT,
     price           DECIMAL(18,2) NOT NULL DEFAULT 0,
-    stock_quantity  INT DEFAULT 0,
     description     NVARCHAR(MAX),
     image_url       NVARCHAR(500),
     launch_status   NVARCHAR(10) DEFAULT 'OFFICIAL'
@@ -138,6 +144,7 @@ GO
 
 -- Bảng 5: Surveys - Chiến dịch khảo sát sản phẩm mới
 CREATE TABLE dbo.Surveys (
+    record_version ROWVERSION NOT NULL,
     id                  INT IDENTITY(1,1) PRIMARY KEY,
     title               NVARCHAR(200) NOT NULL,
     description         NVARCHAR(MAX),
@@ -192,6 +199,7 @@ GO
 
 -- Bảng 9: Feedbacks - Phản hồi & đánh giá sản phẩm từ khách hàng
 CREATE TABLE dbo.Feedbacks (
+    record_version ROWVERSION NOT NULL,
     id              INT IDENTITY(1,1) PRIMARY KEY,
     customer_id     INT NOT NULL,
     product_id      INT NOT NULL,
@@ -200,6 +208,8 @@ CREATE TABLE dbo.Feedbacks (
     status          NVARCHAR(10) DEFAULT 'PENDING'
                     CONSTRAINT CK_Feedbacks_status CHECK (status IN ('PENDING','REPLIED')),
     reply_content   NVARCHAR(MAX),
+    replied_at      DATETIME2 NULL,
+    updated_at      DATETIME2 NULL,
     created_at      DATETIME2 DEFAULT GETDATE(),
     CONSTRAINT FK_Feedbacks_Customers FOREIGN KEY (customer_id) REFERENCES dbo.Customers(id),
     CONSTRAINT FK_Feedbacks_Products FOREIGN KEY (product_id) REFERENCES dbo.Products(id)
@@ -219,6 +229,16 @@ CREATE TABLE dbo.FeedbackAuditLog (
     changed_at      DATETIME2 DEFAULT GETDATE(),
     CONSTRAINT FK_FeedbackAuditLog_Feedbacks FOREIGN KEY (feedback_id) REFERENCES dbo.Feedbacks(id) ON DELETE CASCADE,
     CONSTRAINT FK_FeedbackAuditLog_Customers FOREIGN KEY (customer_id) REFERENCES dbo.Customers(id)
+);
+GO
+
+CREATE TABLE dbo.FeedbackReplyHistory (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    feedback_id INT NOT NULL REFERENCES dbo.Feedbacks(id),
+    manager_id INT NULL REFERENCES dbo.Accounts(id),
+    old_content NVARCHAR(MAX),
+    new_content NVARCHAR(MAX) NOT NULL,
+    changed_at DATETIME2 NOT NULL DEFAULT GETDATE()
 );
 GO
 
@@ -258,17 +278,17 @@ INSERT INTO dbo.Accounts (username, password, full_name, email, phone, role, sta
 GO
 
 -- Dữ liệu khách hàng (hồ sơ làm đẹp)
-INSERT INTO dbo.Customers (account_id, age, gender, skin_type, beauty_preferences, membership_tier) VALUES
-(4,  24, N'Nu', N'Da dầu',       N'Trang điểm,Chống lão hóa',       'SILVER'),
-(5,  19, N'Nu', N'Da khô',       N'Chăm sóc da (Skincare),Dưỡng ẩm',           'BRONZE'),
-(6,  31, N'Nu', N'Da hỗn hợp',   N'Chống lão hóa,Trị mụn',          'GOLD'),
-(7,  28, N'Nu', N'Da nhạy cảm',  N'Chăm sóc da (Skincare),Organic',            'SILVER'),
-(8,  22, N'Nu', N'Da thường',    N'Trang điểm,Chăm sóc da (Skincare)',         'BRONZE'),
-(9,  35, N'Nu', N'Da dầu',       N'Trị mụn,Chăm sóc da (Skincare)',            'GOLD'),
-(10, 42, N'Nu', N'Da khô',       N'Chống lão hóa,Dưỡng ẩm',         'PLATINUM'),
-(11, 17, N'Nu', N'Da thường',    N'Trang điểm,Chăm sóc da (Skincare)',     'BRONZE'),
-(12, 38, N'Nam', N'Da dầu',      N'Chăm sóc da (Skincare),Dưỡng ẩm',          'SILVER'),
-(13, 26, N'Nu', N'Da hỗn hợp',   N'Trang điểm,Chống lão hóa,Trị mụn', 'GOLD');
+INSERT INTO dbo.Customers (account_id, age, gender, skin_type, beauty_preferences) VALUES
+(4,  24, N'Nu', N'Da dầu',       N'Trang điểm,Chống lão hóa'),
+(5,  19, N'Nu', N'Da khô',       N'Chăm sóc da (Skincare),Dưỡng ẩm'),
+(6,  31, N'Nu', N'Da hỗn hợp',   N'Chống lão hóa,Trị mụn'),
+(7,  28, N'Nu', N'Da nhạy cảm',  N'Chăm sóc da (Skincare),Organic'),
+(8,  22, N'Nu', N'Da thường',    N'Trang điểm,Chăm sóc da (Skincare)'),
+(9,  35, N'Nu', N'Da dầu',       N'Trị mụn,Chăm sóc da (Skincare)'),
+(10, 42, N'Nu', N'Da khô',       N'Chống lão hóa,Dưỡng ẩm'),
+(11, 17, N'Nu', N'Da thường',    N'Trang điểm,Chăm sóc da (Skincare)'),
+(12, 38, N'Nam', N'Da dầu',      N'Chăm sóc da (Skincare),Dưỡng ẩm'),
+(13, 26, N'Nu', N'Da hỗn hợp',   N'Trang điểm,Chống lão hóa,Trị mụn');
 GO
 
 -- Dữ liệu nhà cung cấp
@@ -282,17 +302,17 @@ INSERT INTO dbo.Suppliers (name, contact_name, email, phone, address, status) VA
 GO
 
 -- Dữ liệu sản phẩm mỹ phẩm
-INSERT INTO dbo.Products (name, category, supplier_id, price, stock_quantity, description, launch_status) VALUES
-(N'Son môi nhung mịn Velvet Matte #01 Đỏ Ruby',        N'Son môi',         1, 350000, 150, N'Son môi lâu trôi với công thức nhung mịn, màu đỏ ruby quyến rũ.',       'OFFICIAL'),
-(N'Kem dưỡng da ban đêm Retinol Pro',                    N'Kem dưỡng da',    4, 680000,  80, N'Kem dưỡng chứa Retinol 0.3% và Peptide giúp tái tạo da chống nhăn.',   'OFFICIAL'),
-(N'Serum Vitamin C Brightening 30ml',                    N'Serum',           2, 520000, 120, N'Serum Vitamin C 15% làm sáng da, mờ thâm nám và tăng đề kháng.',       'OFFICIAL'),
-(N'Kem chống nắng SPF50+ PA++++',                        N'Kem chống nắng',  3, 280000, 200, N'Kem chống nắng phổ rộng, không nhờn rít, phù hợp da nhạy cảm.',        'OFFICIAL'),
-(N'Phấn phủ kiềm dầu HD Powder',                        N'Phấn phủ',        6, 195000,  90, N'Phấn phủ kiềm dầu 8 tiếng, cho lớp nền mịn tự nhiên.',                 'OFFICIAL'),
-(N'Sữa rửa mặt Green Tea Foam',                         N'Sữa rửa mặt',    2, 165000, 300, N'Sữa rửa mặt trà xanh Jeju, làm sạch dịu nhẹ và thu nhỏ lỗ chân lông.', 'OFFICIAL'),
-(N'Toner cân bằng Centella Asiatica',                   N'Toner',           3, 245000, 175, N'Toner rau má phục hồi và làm dịu da, giảm đỏ và kiểm soát dầu.',       'OFFICIAL'),
-(N'Mặt nạ ngủ Collagen Gold 50ml',                      N'Mặt nạ',          5, 390000,  60, N'Mặt nạ ngủ hữu cơ chứa collagen vàng và chiết xuất hoa hồng.',          'OFFICIAL'),
-(N'Son môi Glossy Shine - Bộ sưu tập Hè 2026',         N'Son môi',         1, 420000,   0, N'Dòng son bóng lì cao cấp hiệu ứng môi căng bóng 3D. Ra mắt hè 2026.',  'UPCOMING'),
-(N'Serum chống lão hóa Peptide Complex',                N'Serum',           4, 950000,   0, N'Serum Peptide thế hệ mới xóa nếp nhăn, tăng độ đàn hồi da.',           'UPCOMING');
+INSERT INTO dbo.Products (name, category, supplier_id, price, description, launch_status) VALUES
+(N'Son môi nhung mịn Velvet Matte #01 Đỏ Ruby',        N'Son môi',         1, 350000, N'Son môi lâu trôi với công thức nhung mịn, màu đỏ ruby quyến rũ.',       'OFFICIAL'),
+(N'Kem dưỡng da ban đêm Retinol Pro',                    N'Kem dưỡng da',    4, 680000, N'Kem dưỡng chứa Retinol 0.3% và Peptide giúp tái tạo da chống nhăn.',   'OFFICIAL'),
+(N'Serum Vitamin C Brightening 30ml',                    N'Serum',           2, 520000, N'Serum Vitamin C 15% làm sáng da, mờ thâm nám và tăng đề kháng.',       'OFFICIAL'),
+(N'Kem chống nắng SPF50+ PA++++',                        N'Kem chống nắng',  3, 280000, N'Kem chống nắng phổ rộng, không nhờn rít, phù hợp da nhạy cảm.',        'OFFICIAL'),
+(N'Phấn phủ kiềm dầu HD Powder',                        N'Phấn phủ',        6, 195000, N'Phấn phủ kiềm dầu 8 tiếng, cho lớp nền mịn tự nhiên.',                 'OFFICIAL'),
+(N'Sữa rửa mặt Green Tea Foam',                         N'Sữa rửa mặt',    2, 165000, N'Sữa rửa mặt trà xanh Jeju, làm sạch dịu nhẹ và thu nhỏ lỗ chân lông.', 'OFFICIAL'),
+(N'Toner cân bằng Centella Asiatica',                   N'Toner',           3, 245000, N'Toner rau má phục hồi và làm dịu da, giảm đỏ và kiểm soát dầu.',       'OFFICIAL'),
+(N'Mặt nạ ngủ Collagen Gold 50ml',                      N'Mặt nạ',          5, 390000, N'Mặt nạ ngủ hữu cơ chứa collagen vàng và chiết xuất hoa hồng.',          'OFFICIAL'),
+(N'Son môi Glossy Shine - Bộ sưu tập Hè 2026',         N'Son môi',         1, 420000, N'Dòng son bóng lì cao cấp hiệu ứng môi căng bóng 3D. Ra mắt hè 2026.',  'UPCOMING'),
+(N'Serum chống lão hóa Peptide Complex',                N'Serum',           4, 950000, N'Serum Peptide thế hệ mới xóa nếp nhăn, tăng độ đàn hồi da.',           'UPCOMING');
 GO
 
 -- Dữ liệu chiến dịch khảo sát (Surveys)

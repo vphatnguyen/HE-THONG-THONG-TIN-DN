@@ -1,12 +1,14 @@
+const { assertTestEnvironment } = require('./test-safety');
 const { chromium } = require('playwright-core');
 const EDGE_PATH = process.env.EDGE_PATH || 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = process.env.E2E_BASE_URL || 'http://localhost:3100';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
 async function run() {
+  await assertTestEnvironment(BASE_URL);
   console.log('--- STARTING PLAYWRIGHT UI VERIFICATION: ADMIN & HASAKI ---');
   const browser = await chromium.launch({
     executablePath: EDGE_PATH,
@@ -31,18 +33,18 @@ async function run() {
     // Verify Table Headers
     const headers = await page.$$eval('.table-wrapper thead th', ths => ths.map(th => th.textContent.trim()));
     console.log('   Admin Table Headers:', headers);
-    assert(headers[0] === 'ID', 'Header 0 must be ID');
-    assert(headers[1] === 'USERNAME', 'Header 1 must be USERNAME');
-    assert(headers[2] === 'Họ và tên', 'Header 2 must be Họ và tên');
-    assert(headers[8] === 'Hành động', 'Header 8 must be Hành động');
+    assert(!headers.includes('ID'), 'Account ID is hidden');
+    assert(headers[0] === 'USERNAME', 'Header 0 must be USERNAME');
+    assert(headers[1] === 'Họ và tên', 'Header 1 must be Họ và tên');
+    assert(headers[7] === 'Hành động', 'Header 7 must be Hành động');
 
     // Verify first row contains @username and Action buttons
-    const firstRowUsername = await page.$eval('#accounts-tbody tr:first-child td:nth-child(2)', el => el.textContent.trim());
+    const firstRowUsername = await page.$eval('#accounts-tbody tr:first-child td:nth-child(1)', el => el.textContent.trim());
     console.log('   First row username:', firstRowUsername);
     assert(firstRowUsername.startsWith('@'), 'Username must start with @');
 
     // Verify action buttons exist in first row
-    const firstRowButtons = await page.$$eval('#accounts-tbody tr:first-child td:nth-child(9) button', btns => btns.map(b => b.textContent.trim()));
+    const firstRowButtons = await page.$$eval('#accounts-tbody tr:first-child td:last-child button', btns => btns.map(b => b.textContent.trim()));
     console.log('   First row action buttons:', firstRowButtons);
     assert(firstRowButtons.some(b => b.includes('Sửa')), 'Must have Sửa button');
 
@@ -54,9 +56,10 @@ async function run() {
 
     const passTypeBefore = await page.$eval('#e-password', el => el.type);
     const passValue = await page.$eval('#e-password', el => el.value);
-    console.log(`   Initial password input type: ${passTypeBefore}, value: ${passValue}`);
+    console.log(`   Initial password input type: ${passTypeBefore}`);
     assert(passTypeBefore === 'password', 'Password input should initially be type="password"');
-    assert(passValue.length > 0 && !passValue.startsWith('$2a$'), 'Password value must be plain text, not bcrypt hash');
+    assert(!passValue.startsWith('$2a$'), 'Bcrypt hashes must not be presented as viewable passwords');
+    if (!passValue) assert((await page.textContent('#modal-body')).includes('bcrypt'), 'Legacy hashed password must explain reset behavior');
 
     // Click Eye button to toggle visibility
     await page.click('#e-password + button');

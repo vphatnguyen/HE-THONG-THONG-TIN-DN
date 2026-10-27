@@ -6,28 +6,40 @@ let state = { token: null, user: null, customer: null, currentPage: null };
 const BEAUTY_PREFERENCE_OPTIONS = ['Chăm sóc da (Skincare)', 'Trang điểm', 'Chống lão hóa', 'Trị mụn', 'Dưỡng ẩm', 'Organic'];
 
 // ========== UTILITIES ==========
+const pendingMutations = new Map();
 function api(method, url, body) {
-  return fetch(url, {
-    method,
-    headers: { 'Content-Type': 'application/json', ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}) },
-    body: body ? JSON.stringify(body) : undefined,
-  }).then(async r => {
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  const writing = !['GET','HEAD'].includes(method);
+  const key = `${method}:${url}:${JSON.stringify(body)}`;
+  if (writing && pendingMutations.has(key)) return pendingMutations.get(key);
+  const buttons = writing ? [...new Set([...document.querySelectorAll('#modal-body button, #header-actions button'), ...(document.activeElement?.tagName === 'BUTTON' ? [document.activeElement] : [])])].filter(b => !b.disabled) : [];
+  buttons.forEach(b => b.disabled = true);
+  const request = fetch(url, {
+    method, headers: { 'Content-Type': 'application/json', ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}) },
+    body: body === undefined ? undefined : JSON.stringify(body)
+  }).then(async response => {
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      if (response.status === 401 && state.token) logout();
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
     return data;
-  });
+  }).finally(() => { pendingMutations.delete(key); buttons.forEach(b => b.disabled = false); });
+  if (writing) pendingMutations.set(key, request);
+  return request;
 }
 
 function toast(msg, type = 'info') {
   const el = document.createElement('div');
   el.className = `toast ${type}`;
   const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️';
-  el.innerHTML = `<span>${icon}</span><span>${msg}</span>`;
+  el.innerHTML = `<span>${icon}</span><span>${escapeHtml(msg)}</span>`;
   document.getElementById('toast-container').appendChild(el);
   setTimeout(() => el.remove(), 3500);
 }
 
+let modalRequestVersion=0;
 function showModal(title, bodyHtml, wide = false) {
+  modalRequestVersion++;
   document.getElementById('modal-title').textContent = title;
   document.getElementById('modal-body').innerHTML = bodyHtml;
   const modal = document.getElementById('modal');
@@ -37,6 +49,7 @@ function showModal(title, bodyHtml, wide = false) {
 
 function closeModal(e) {
   if (!e || e.target === document.getElementById('modal-overlay')) {
+    modalRequestVersion++;
     document.getElementById('modal-overlay').classList.add('hidden');
   }
 }
@@ -119,8 +132,8 @@ function statusBadge(status) {
 
 function launchBadge(s, full = false) {
   return s === 'UPCOMING'
-    ? `<span class="badge badge-upcoming" title="Ngừng kinh doanh (Đóng đánh giá)">🚫 Ngừng kinh doanh${full ? ' (Đóng đánh giá)' : ''}</span>`
-    : `<span class="badge badge-official" title="Đang kinh doanh (Mở đánh giá)">✓ Đang kinh doanh${full ? ' (Mở đánh giá)' : ''}</span>`;
+    ? `<span class="badge badge-upcoming" title="Ngừng bán (Đóng đánh giá)">🚫 Ngừng bán${full ? ' (Đóng đánh giá)' : ''}</span>`
+    : `<span class="badge badge-official" title="Đang bán (Mở đánh giá)">✓ Đang bán${full ? ' (Mở đánh giá)' : ''}</span>`;
 }
 
 function surveyStatusBadge(s) {
@@ -269,6 +282,7 @@ function navigateToDefault() {
 }
 
 function navigate(pageId) {
+  if (typeof chartInstances !== 'undefined') Object.keys(chartInstances).forEach(destroyChart);
   state.currentPage = pageId;
   // Update nav active state
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
@@ -307,6 +321,7 @@ function setPageHeader(title, subtitle, actionsHtml = '') {
 
 function setPageContent(html) {
   document.getElementById('page-content').innerHTML = html;
+  installListTools();
 }
 
 function showLoading() {

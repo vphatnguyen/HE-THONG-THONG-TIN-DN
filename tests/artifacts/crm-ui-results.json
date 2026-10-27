@@ -1,0 +1,198 @@
+[
+  {
+    "id": "UX01",
+    "scenario": "Danh sách khách hàng",
+    "expected": "6 cột, có ID, không tự mở form sửa",
+    "actual": "6 cột, có ID, không tự mở form sửa",
+    "status": "PASS"
+  },
+  {
+    "id": "UX02",
+    "scenario": "Nút sửa không mở chi tiết",
+    "expected": "mở đúng form sửa",
+    "actual": "mở đúng form sửa",
+    "status": "PASS"
+  },
+  {
+    "id": "UX03",
+    "scenario": "Nút khóa bị hủy không mở hàng",
+    "expected": "không modal, không đổi dữ liệu",
+    "actual": "không modal, không đổi dữ liệu",
+    "status": "PASS"
+  },
+  {
+    "id": "UX04",
+    "scenario": "Điều hướng chi tiết bằng bàn phím",
+    "expected": "Enter mở chi tiết",
+    "actual": "Enter mở chi tiết",
+    "status": "PASS"
+  },
+  {
+    "id": "UX05",
+    "scenario": "Lọc ngày + sắp xếp + phân trang khách hàng",
+    "expected": "ngày đảo báo lỗi, reset phục hồi",
+    "actual": "ngày đảo báo lỗi, reset phục hồi",
+    "status": "PASS"
+  },
+  {
+    "id": "UX06",
+    "scenario": "Tìm khách hàng theo ID và xóa bộ lọc",
+    "expected": "đúng một bản ghi",
+    "actual": "đúng một bản ghi",
+    "status": "PASS"
+  },
+  {
+    "id": "UX07",
+    "scenario": "Feedback Manager danh sách/chi tiết",
+    "expected": "7 cột; nội dung và phản hồi chỉ ở chi tiết",
+    "actual": "7 cột; nội dung và phản hồi chỉ ở chi tiết",
+    "status": "PASS"
+  },
+  {
+    "id": "UX08",
+    "scenario": "Chiến dịch danh sách/chi tiết",
+    "expected": "7 cột; không sản phẩm/mô tả ở bảng",
+    "actual": "7 cột; không sản phẩm/mô tả ở bảng",
+    "status": "PASS"
+  },
+  {
+    "id": "UX09",
+    "scenario": "Chiến dịch lọc kết hợp",
+    "expected": "lọc ID + trạng thái + reset",
+    "actual": "lọc ID + trạng thái + reset",
+    "status": "PASS"
+  },
+  {
+    "id": "UX24",
+    "scenario": "Phản hồi tải chi tiết cũ không ghi đè bản ghi vừa mở",
+    "expected": "giữ đúng ID mới khi request cũ hoàn thành muộn",
+    "actual": "giữ đúng ID mới khi request cũ hoàn thành muộn",
+    "status": "PASS"
+  },
+  {
+    "id": "UX17",
+    "scenario": "Lỗi API phản hồi giữ nguyên dữ liệu nhập",
+    "expected": "hiện lỗi, không đóng form, giữ nội dung",
+    "actual": "hiện lỗi, không đóng form, giữ nội dung",
+    "status": "PASS"
+  },
+  {
+    "id": "UX18",
+    "scenario": "Manager gửi và sửa phản hồi qua UI",
+    "expected": "đã phản hồi; 2 phiên bản lịch sử",
+    "actual": "đã phản hồi; 2 phiên bản lịch sử",
+    "status": "PASS"
+  },
+  {
+    "id": "UX10",
+    "scenario": "Đánh giá Customer danh sách/chi tiết",
+    "expected": "6 cột; chi tiết đầy đủ",
+    "actual": "6 cột; chi tiết đầy đủ",
+    "status": "PASS"
+  },
+  {
+    "id": "UX19",
+    "scenario": "Customer xem phản hồi Manager mới nhất",
+    "expected": "hiện phản hồi đã sửa; không có nút sửa đánh giá",
+    "actual": "hiện phản hồi đã sửa; không có nút sửa đánh giá",
+    "status": "PASS"
+  },
+  {
+    "id": "UX11",
+    "scenario": "Customer xem khảo sát hoàn thành",
+    "expected": "xem lại câu trả lời, không nút nộp/sửa",
+    "actual": "xem lại câu trả lời, không nút nộp/sửa",
+    "status": "PASS"
+  },
+  {
+    "id": "UX12",
+    "scenario": "Customer list 375px",
+    "expected": "cuộn ngang trong bảng, trang không tràn viewport",
+    "actual": "cuộn ngang trong bảng, trang không tràn viewport",
+    "status": "PASS"
+  },
+  {
+    "id": "UX13",
+    "scenario": "CRUD admin-accounts danh sách/chi tiết",
+    "expected": "click hàng đọc, nút sửa mở form",
+    "actual": "click hàng đọc, nút sửa mở form",
+    "status": "PASS"
+  },
+  {
+    "id": "UX14",
+    "scenario": "CRUD manager-products danh sách/chi tiết",
+    "expected": "click hàng đọc, nút sửa mở form",
+    "actual": "click hàng đọc, nút sửa mở form",
+    "status": "PASS"
+  },
+  {
+    "id": "UX15",
+    "scenario": "CRUD manager-suppliers danh sách/chi tiết",
+    "expected": "click hàng đọc, nút sửa mở form",
+    "actual": "click hàng đọc, nút sửa mở form",
+    "status": "PASS"
+  },
+  {
+    "id": "UX20",
+    "scenario": "Manager sửa khách hàng giữ nhiều sở thích",
+    "expected": "giữ nguyên các lựa chọn khi chỉ đổi họ tên",
+    "actual": "giữ nguyên các lựa chọn khi chỉ đổi họ tên",
+    "status": "PASS"
+  },
+  {
+    "id": "UX21",
+    "scenario": "CRUD sản phẩm qua UI với dấu nháy",
+    "expected": "thêm → chi tiết → sửa → xóa đúng bản ghi",
+    "actual": "thêm → chi tiết → sửa → xóa đúng bản ghi",
+    "status": "PASS"
+  },
+  {
+    "id": "UX22",
+    "scenario": "CRUD nhà cung cấp qua UI",
+    "expected": "thêm → sửa liên hệ → xem chi tiết → xóa",
+    "actual": "thêm → sửa liên hệ → xem chi tiết → xóa",
+    "status": "PASS"
+  },
+  {
+    "id": "UX23",
+    "scenario": "CRUD tài khoản nội bộ và xem mật khẩu mới",
+    "expected": "tạo/sửa/khóa/xóa; mật khẩu dạng rõ vẫn xem được",
+    "actual": "tạo/sửa/khóa/xóa; mật khẩu dạng rõ vẫn xem được",
+    "status": "PASS"
+  },
+  {
+    "id": "UX25",
+    "scenario": "Customer xem sản phẩm theo mô hình feedback/khảo sát",
+    "expected": "không tồn kho; nhãn Đang bán/Ngừng bán; giữ điểm sao sản phẩm",
+    "actual": "không tồn kho; nhãn Đang bán/Ngừng bán; giữ điểm sao sản phẩm",
+    "status": "PASS"
+  },
+  {
+    "id": "UX26",
+    "scenario": "Ẩn ID tài khoản ở danh sách, chi tiết và sắp xếp",
+    "expected": "giữ tên đăng nhập và thao tác CRUD",
+    "actual": "giữ tên đăng nhập và thao tác CRUD",
+    "status": "PASS"
+  },
+  {
+    "id": "UX27",
+    "scenario": "Dashboard ngày dd/mm/yyyy và ẩn CSV",
+    "expected": "đổi sang ISO khi gọi API; chặn ngày sai; reset được cả hai ô",
+    "actual": "đổi sang ISO khi gọi API; chặn ngày sai; reset được cả hai ô",
+    "status": "PASS"
+  },
+  {
+    "id": "UX28",
+    "scenario": "Bỏ bộ lọc và nút đặt lại bị lặp",
+    "expected": "một bộ sắp xếp sản phẩm; một nút reset mỗi danh sách; không lặp bộ lọc sao",
+    "actual": "một bộ sắp xếp sản phẩm; một nút reset mỗi danh sách; không lặp bộ lọc sao",
+    "status": "PASS"
+  },
+  {
+    "id": "UX16",
+    "scenario": "Lỗi JavaScript toàn bộ flow",
+    "expected": "0 pageerror",
+    "actual": "0 pageerror",
+    "status": "PASS"
+  }
+]

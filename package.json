@@ -5,7 +5,14 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "test": "node --test tests/list-tools.test.js",
+    "test:e2e": "node tests/e2e-system.js",
+    "test:ui": "node tests/ui-e2e.js",
+    "test:crm": "node tests/crm-regression.js",
+    "test:crm:ui": "node tests/crm-ui-regression.js",
+    "test:db:create": "node tests/create-test-db.js",
+    "test:all": "node tests/run-all.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

@@ -1,0 +1,415 @@
+[
+  {
+    "id": "CRM01",
+    "scenario": "Customer gọi API quản trị",
+    "expected": "403",
+    "actual": {
+      "error": "Không có quyền truy cập"
+    },
+    "status": "PASS"
+  },
+  {
+    "id": "CRM02",
+    "scenario": "Không có phiên đăng nhập",
+    "expected": "401",
+    "actual": {
+      "error": "Chưa đăng nhập"
+    },
+    "status": "PASS"
+  },
+  {
+    "id": "CRM03",
+    "scenario": "JWT hết hạn",
+    "expected": "401",
+    "actual": {
+      "error": "Token không hợp lệ"
+    },
+    "status": "PASS"
+  },
+  {
+    "id": "CRM04",
+    "scenario": "Tạo tài khoản trùng email",
+    "expected": "409; không có account mồ côi",
+    "actual": "409; không có account mồ côi",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM05",
+    "scenario": "Hai tài khoản bỏ trống email",
+    "expected": "201 cả hai",
+    "actual": "201 cả hai",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM06",
+    "scenario": "Validation tài khoản",
+    "expected": "400 cho tên trống, tuổi sai, trạng thái sai",
+    "actual": "400 cho tên trống, tuổi sai, trạng thái sai",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM07",
+    "scenario": "Khóa ID không tồn tại",
+    "expected": "404",
+    "actual": {
+      "error": "Khách hàng không tồn tại"
+    },
+    "status": "PASS"
+  },
+  {
+    "id": "CRM08",
+    "scenario": "Tìm ID hồ sơ khách hàng",
+    "expected": "đúng account/customer ID",
+    "actual": "đúng account/customer ID",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM09",
+    "scenario": "Tạo đánh giá + đồng bộ Manager",
+    "expected": "201; đúng dữ liệu DB/API",
+    "actual": "201; đúng dữ liệu DB/API",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM10",
+    "scenario": "Đọc/sửa đánh giá người khác",
+    "expected": "404; dữ liệu nguyên vẹn",
+    "actual": "404; dữ liệu nguyên vẹn",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM11",
+    "scenario": "Sửa đánh giá + audit",
+    "expected": "200; ghi nhận điểm cũ/mới",
+    "actual": "200; ghi nhận điểm cũ/mới",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM12",
+    "scenario": "Gửi và sửa phản hồi Manager",
+    "expected": "200; có timestamp và 2 phiên bản",
+    "actual": "200; có timestamp và 2 phiên bản",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM13",
+    "scenario": "Retry phản hồi giống hệt",
+    "expected": "200; không nhân đôi audit",
+    "actual": "200; không nhân đôi audit",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM14",
+    "scenario": "Sửa phản hồi từ bản cũ",
+    "expected": "409; không ghi đè",
+    "actual": "409; không ghi đè",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM15",
+    "scenario": "Customer sửa sau phản hồi",
+    "expected": "400",
+    "actual": {
+      "error": "Đánh giá đã được nhân viên chăm sóc khách hàng phản hồi, không thể chỉnh sửa."
+    },
+    "status": "PASS"
+  },
+  {
+    "id": "CRM16",
+    "scenario": "Manager tạo chiến dịch và đọc chi tiết",
+    "expected": "201; đúng sản phẩm, câu hỏi, người nhận",
+    "actual": "201; đúng sản phẩm, câu hỏi, người nhận",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM17",
+    "scenario": "Ngày không tồn tại và cờ bắt buộc sai",
+    "expected": "400",
+    "actual": "400",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM18",
+    "scenario": "Draft không hiển thị với Customer",
+    "expected": "không có trong list; detail 404",
+    "actual": "không có trong list; detail 404",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM19",
+    "scenario": "Phát hành chiến dịch",
+    "expected": "200; Customer được tham gia",
+    "actual": "200; Customer được tham gia",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM20",
+    "scenario": "Người không nhận khảo sát",
+    "expected": "404 detail / 403 submit",
+    "actual": "404 detail / 403 submit",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM21",
+    "scenario": "Thiếu câu bắt buộc",
+    "expected": "400; không lưu result",
+    "actual": {
+      "error": "Câu hỏi \"Bắt buộc\" là bắt buộc, vui lòng trả lời."
+    },
+    "status": "PASS"
+  },
+  {
+    "id": "CRM22",
+    "scenario": "Gửi khảo sát đồng thời hai lần",
+    "expected": "201 + 409; 1 result, 1 answer",
+    "actual": "201 + 409; 1 result, 1 answer",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM23",
+    "scenario": "Lịch sử khảo sát trả đúng câu trả lời cá nhân",
+    "expected": "submission + đáp án 5",
+    "actual": "submission + đáp án 5",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM24",
+    "scenario": "Sửa khảo sát đã có kết quả",
+    "expected": "409; cấu trúc giữ nguyên",
+    "actual": {
+      "error": "Không thể chỉnh sửa cấu trúc khảo sát đã có phản hồi. Bạn vẫn có thể đóng khảo sát bằng nút trạng thái."
+    },
+    "status": "PASS"
+  },
+  {
+    "id": "CRM25",
+    "scenario": "Đóng khảo sát vẫn giữ lịch sử",
+    "expected": "200; Customer đọc được kết quả cũ",
+    "actual": "200; Customer đọc được kết quả cũ",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM26",
+    "scenario": "Khóa tài khoản vô hiệu token đã cấp",
+    "expected": "403 cho đọc/ghi; dữ liệu lịch sử nguyên vẹn",
+    "actual": "403 cho đọc/ghi; dữ liệu lịch sử nguyên vẹn",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM27",
+    "scenario": "Xóa khách có lịch sử",
+    "expected": "khóa; feedback/result không mất",
+    "actual": "khóa; feedback/result không mất",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM28",
+    "scenario": "Ngừng sản phẩm giữ liên kết khảo sát",
+    "expected": "softDeleted; không mất liên kết",
+    "actual": "softDeleted; không mất liên kết",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM29",
+    "scenario": "Thống kê sau khóa/ngừng kinh doanh",
+    "expected": "1 result; 1 đánh giá 5 sao",
+    "actual": "KPI sản phẩm count=1, average=5; API kết quả 200",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM30",
+    "scenario": "Ngày/filter/page API kết hợp",
+    "expected": "1 bản ghi đúng ID; tổng chính xác",
+    "actual": "1 bản ghi đúng ID; tổng chính xác",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM31",
+    "scenario": "Filter API không hợp lệ",
+    "expected": "400 đảo ngày, ngày sai, page sai, sort sai",
+    "actual": "400 đảo ngày, ngày sai, page sai, sort sai",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM32",
+    "scenario": "Giá/trạng thái/nhà cung cấp không hợp lệ",
+    "expected": "400, không tạo sản phẩm",
+    "actual": "400, không tạo sản phẩm",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM33",
+    "scenario": "Chỉnh sửa ID khách hàng",
+    "expected": "ID bất biến",
+    "actual": "ID bất biến",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM34",
+    "scenario": "Khảo sát hết hạn lúc khách đang làm",
+    "expected": "409; không lưu; vẫn có chi tiết hết hạn",
+    "actual": "409; không lưu; vẫn có chi tiết hết hạn",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM35",
+    "scenario": "Xóa sản phẩm chỉ có khảo sát, chưa feedback",
+    "expected": "ngừng kinh doanh; liên kết nguyên vẹn",
+    "actual": "ngừng kinh doanh; liên kết nguyên vẹn",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM36",
+    "scenario": "Khách hàng đã xóa với token cũ",
+    "expected": "401",
+    "actual": "401",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM37",
+    "scenario": "Optimistic concurrency tài khoản",
+    "expected": "200 rồi 409; giữ thay đổi mới",
+    "actual": "200 rồi 409; giữ thay đổi mới",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM38",
+    "scenario": "CRUD sản phẩm chưa có quan hệ",
+    "expected": "thêm/sửa/đọc/xóa 201/200",
+    "actual": "thêm/sửa/đọc/xóa 201/200",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM39",
+    "scenario": "CRUD nhà cung cấp chưa liên kết",
+    "expected": "thêm/sửa/tìm/xóa; chặn bản cũ",
+    "actual": "thêm/sửa/tìm/xóa; chặn bản cũ",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM40",
+    "scenario": "Ngừng nhà cung cấp giữ sản phẩm và feedback",
+    "expected": "INACTIVE; sản phẩm UPCOMING; lịch sử giữ",
+    "actual": "INACTIVE; sản phẩm UPCOMING; lịch sử giữ",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM41",
+    "scenario": "ID sai định dạng",
+    "expected": "400",
+    "actual": "400",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM42",
+    "scenario": "Đổi email trùng không ghi dở dang",
+    "expected": "409; họ tên không đổi",
+    "actual": "409; họ tên không đổi",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM43",
+    "scenario": "Khảo sát chưa phản hồi sửa/xóa và kiểm tra version",
+    "expected": "200/409; không còn bản ghi sau xóa",
+    "actual": "200/409; không còn bản ghi sau xóa",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM44",
+    "scenario": "Hai Manager sửa cùng phản hồi",
+    "expected": "một 200, một 409; không mất audit",
+    "actual": "một 200, một 409; không mất audit",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM45",
+    "scenario": "Xóa tài khoản chưa tương tác",
+    "expected": "xóa thật; không hồ sơ mồ côi",
+    "actual": "xóa thật; không hồ sơ mồ côi",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM46",
+    "scenario": "Lọc sản phẩm ID và khoảng giá sai",
+    "expected": "ID trả đúng; khoảng giá 400",
+    "actual": "ID trả đúng; khoảng giá 400",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM47",
+    "scenario": "Các cột sắp xếp sản phẩm đang dùng trên UI",
+    "expected": "200 cho created_at/name/price/review_count/id",
+    "actual": "200 cho created_at/name/price/review_count/id",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM48",
+    "scenario": "Cập nhật profile một phần",
+    "expected": "giữ tên/email/tuổi khi không gửi trường tương ứng",
+    "actual": "giữ tên/email/tuổi khi không gửi trường tương ứng",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM49",
+    "scenario": "Chặn xóa Admin hoạt động cuối khi còn Admin bị khóa",
+    "expected": "400; hệ thống còn Admin ACTIVE",
+    "actual": "400; hệ thống còn Admin ACTIVE",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM50",
+    "scenario": "Lọc cùng ngày với SQL Server tại múi giờ địa phương",
+    "expected": "bao gồm đánh giá vừa tạo sau nửa đêm",
+    "actual": "bao gồm đánh giá vừa tạo sau nửa đêm",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM51",
+    "scenario": "Đã hoàn thành vẫn đọc lịch sử nếu chiến dịch về DRAFT",
+    "expected": "Customer có kết quả được đọc; người khác không được",
+    "actual": "Customer có kết quả được đọc; người khác không được",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM52",
+    "scenario": "Customer sửa cùng lúc Manager phản hồi",
+    "expected": "REPLIED nhất quán, audit đúng, không sửa sau phản hồi",
+    "actual": "REPLIED nhất quán, audit đúng, không sửa sau phản hồi",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM53",
+    "scenario": "Hash bcrypt không thể dùng thay mật khẩu",
+    "expected": "mật khẩu gốc 200; chuỗi hash 401",
+    "actual": "mật khẩu gốc 200; chuỗi hash 401",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM54",
+    "scenario": "Hồ sơ khách không còn hạng và điểm trung bình",
+    "expected": "API bỏ thuộc tính đã thống nhất; giữ metadata ngày tạo",
+    "actual": "API bỏ thuộc tính đã thống nhất; giữ metadata ngày tạo",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM55",
+    "scenario": "Sản phẩm không còn tồn kho; vẫn có thống kê feedback",
+    "expected": "API bỏ stock_quantity; điểm sao sản phẩm đúng",
+    "actual": "API bỏ stock_quantity; điểm sao sản phẩm đúng",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM56",
+    "scenario": "Payload tồn kho cũ không tác động nghiệp vụ",
+    "expected": "bỏ qua field cũ; tạo/sửa sản phẩm bình thường; sort tồn kho không còn hỗ trợ",
+    "actual": "bỏ qua field cũ; tạo/sửa sản phẩm bình thường; sort tồn kho không còn hỗ trợ",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM57",
+    "scenario": "Khoảng ngày tính cả đầu ngày và toàn bộ cuối ngày",
+    "expected": "API danh sách và Dashboard cùng loại trước/sau, nhận 00:00 và 23:59:59.9999999",
+    "actual": "API danh sách và Dashboard cùng loại trước/sau, nhận 00:00 và 23:59:59.9999999",
+    "status": "PASS"
+  }
+]

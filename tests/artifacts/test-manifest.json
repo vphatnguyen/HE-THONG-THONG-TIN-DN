@@ -1,0 +1,89 @@
+{
+  "date": "2026-10-27T19:45:44.174Z",
+  "base": "http://localhost:3101",
+  "database": "CosmeticsCRM_Refactor_E2E_DB",
+  "suites": [
+    {
+      "name": "lean-schema",
+      "args": [
+        "tests/lean-schema-migration.js"
+      ],
+      "status": "PASS",
+      "exitCode": 0,
+      "log": "lean-schema.log"
+    },
+    {
+      "name": "unit",
+      "args": [
+        "--test",
+        "tests/list-tools.test.js"
+      ],
+      "status": "PASS",
+      "exitCode": 0,
+      "log": "unit.log"
+    },
+    {
+      "name": "api-existing",
+      "args": [
+        "tests/e2e-system.js"
+      ],
+      "status": "PASS",
+      "exitCode": 0,
+      "log": "api-regression.log"
+    },
+    {
+      "name": "api-crm",
+      "args": [
+        "tests/crm-regression.js"
+      ],
+      "status": "PASS",
+      "exitCode": 0,
+      "log": "crm-api.log"
+    },
+    {
+      "name": "ui-existing",
+      "args": [
+        "tests/ui-e2e.js"
+      ],
+      "status": "PASS",
+      "exitCode": 0,
+      "log": "ui-regression.log"
+    },
+    {
+      "name": "ui-crm",
+      "args": [
+        "tests/crm-ui-regression.js"
+      ],
+      "status": "PASS",
+      "exitCode": 0,
+      "log": "crm-ui.log"
+    },
+    {
+      "name": "pagination-filters",
+      "args": [
+        "tests/test-pagination-filters.js"
+      ],
+      "status": "PASS",
+      "exitCode": 0,
+      "log": "pagination.log"
+    },
+    {
+      "name": "admin-api",
+      "args": [
+        "tests/test-admin-hasaki-features.js"
+      ],
+      "status": "PASS",
+      "exitCode": 0,
+      "log": "admin-api.log"
+    },
+    {
+      "name": "admin-ui",
+      "args": [
+        "tests/test-ui-admin-hasaki.js"
+      ],
+      "status": "PASS",
+      "exitCode": 0,
+      "log": "admin-ui.log"
+    }
+  ]
+}

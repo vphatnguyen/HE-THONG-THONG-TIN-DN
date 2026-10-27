@@ -1,3 +1,4 @@
+const { assertTestEnvironment } = require('./test-safety');
 const { chromium } = require('playwright-core');
 const sql = require('msnodesqlv8');
 const fs = require('fs');
@@ -41,12 +42,14 @@ async function dbQuery(connection, statement, params = []) {
 }
 
 async function run() {
+  await assertTestEnvironment(BASE_URL, DB_DATABASE);
   fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
   const pool = await sql.promises.open(`Driver={ODBC Driver 18 for SQL Server};Server=${DB_SERVER};Database=${DB_DATABASE};Trusted_Connection=yes;TrustServerCertificate=yes;`);
   const qaCustomer = (await dbQuery(pool, "SELECT c.id FROM Customers c JOIN Accounts a ON a.id=c.account_id WHERE a.username='qa_e2e_customer_a'"))[0];
   expect(qaCustomer, 'Thiếu fixture qa_e2e_customer_a; hãy chạy tests/e2e-system.js trước');
 
   await dbQuery(pool, `
+    DELETE FROM FeedbackReplyHistory WHERE feedback_id IN (SELECT f.id FROM Feedbacks f JOIN Customers c ON c.id=f.customer_id JOIN Accounts a ON a.id=c.account_id WHERE a.username LIKE 'qa_e2e_%');
     DELETE FROM SurveyAnswers WHERE survey_result_id IN (SELECT id FROM SurveyResults WHERE survey_id IN (SELECT id FROM Surveys WHERE title='qa_e2e_ui_survey'));
     DELETE FROM SurveyResults WHERE survey_id IN (SELECT id FROM Surveys WHERE title='qa_e2e_ui_survey');
     DELETE FROM SurveyRecipients WHERE survey_id IN (SELECT id FROM Surveys WHERE title='qa_e2e_ui_survey');
@@ -56,7 +59,7 @@ async function run() {
     IF OBJECT_ID('dbo.FeedbackAuditLog', 'U') IS NOT NULL DELETE FROM FeedbackAuditLog WHERE feedback_id IN (SELECT id FROM Feedbacks WHERE product_id IN (SELECT id FROM Products WHERE name='qa_e2e_ui_product'));
     DELETE FROM Feedbacks WHERE product_id IN (SELECT id FROM Products WHERE name='qa_e2e_ui_product');
     DELETE FROM Products WHERE name='qa_e2e_ui_product';
-    INSERT INTO Products(name,category,price,stock_quantity,launch_status) VALUES(N'qa_e2e_ui_product',N'Test UI',123000,5,'OFFICIAL');
+    INSERT INTO Products(name,category,price,launch_status) VALUES(N'qa_e2e_ui_product',N'Test UI',123000,'OFFICIAL');
   `);
   const uiProduct = (await dbQuery(pool, "SELECT id FROM Products WHERE name='qa_e2e_ui_product'"))[0];
 
@@ -113,8 +116,8 @@ async function run() {
   });
 
   await test('UI-02', 'Bộ lọc thời gian Dashboard', 'Khoảng năm 2099 cập nhật KPI về 0 và biểu đồ vẫn render', async () => {
-    await page.locator('#analytics-from').fill('2099-01-01');
-    await page.locator('#analytics-to').fill('2099-12-31');
+    await page.locator('#analytics-from').fill('01/01/2099');
+    await page.locator('#analytics-to').fill('31/12/2099');
     const inputValues = await page.evaluate(() => ({ from: document.querySelector('#analytics-from').value, to: document.querySelector('#analytics-to').value }));
     const [response] = await Promise.all([
       page.waitForResponse(item => item.url().includes('/api/manager/analytics') && item.request().method() === 'GET'),
@@ -138,10 +141,10 @@ async function run() {
     return 'Không trùng biểu đồ; 2 bảng dữ liệu hiện diện';
   });
 
-  await test('UI-04', 'Bộ lọc khách hàng khi tạo khảo sát', 'Lọc đúng loại da/sở thích, chỉ chọn người khớp và cập nhật bộ đếm', async () => {
+  await test('UI-04', 'Bộ lọc khách hàng khi tạo khảo sát', 'Lọc đúng loại da/sở thích, giữ lựa chọn và cập nhật bộ đếm', async () => {
     await page.locator('#nav-manager-surveys').click();
     await page.getByRole('button', { name: /Tạo khảo sát mới/ }).click();
-    await page.locator('#sv-recipient-segment').selectOption('SKIN:Da dầu');
+    await page.locator('#sv-recipient-skin').selectOption('Da dầu');
     const skinState = await page.evaluate(() => {
       const items = [...document.querySelectorAll('.sv-recipient-item')];
       return {
@@ -152,9 +155,10 @@ async function run() {
         counter: Number(document.querySelector('#sv-recipient-count')?.textContent)
       };
     });
-    expect(skinState.expected > 0 && skinState.expected === skinState.visible && skinState.visible === skinState.checked && skinState.checked === skinState.counter && skinState.mismatched === 0, `skin=${JSON.stringify(skinState)}`);
+    expect(skinState.expected > 0 && skinState.expected === skinState.visible && skinState.checked === skinState.counter && skinState.mismatched === 0, `skin=${JSON.stringify(skinState)}`);
 
-    await page.locator('#sv-recipient-segment').selectOption('PREF:Trị mụn');
+    await page.locator('#sv-recipient-skin').selectOption('');
+    await page.locator('#sv-recipient-pref').selectOption('Trị mụn');
     const prefState = await page.evaluate(() => {
       const target = 'trị mụn';
       const items = [...document.querySelectorAll('.sv-recipient-item')];
@@ -168,8 +172,8 @@ async function run() {
       };
     });
     await page.evaluate(() => closeModal());
-    expect(prefState.expected > 0 && prefState.expected === prefState.visible && prefState.visible === prefState.checked && prefState.checked === prefState.counter && prefState.mismatched === 0, `pref=${JSON.stringify(prefState)}`);
-    return `Da dầu=${skinState.checked}; Trị mụn=${prefState.checked}; bộ đếm chính xác`;
+    expect(prefState.expected > 0 && prefState.expected === prefState.visible && prefState.checked === prefState.counter && prefState.mismatched === 0, `pref=${JSON.stringify(prefState)}`);
+    return `Hiển thị Da dầu=${skinState.visible}; Trị mụn=${prefState.visible}; tổng đã chọn=${prefState.checked}; bộ đếm chính xác`;
   });
 
   await test('UI-05', 'Dashboard trên màn hình di động', 'Không tràn ngang viewport; nội dung/biểu đồ vẫn hiện', async () => {
@@ -218,13 +222,15 @@ async function run() {
     expect(row?.rating === 5 && row?.content === content, `DB=${JSON.stringify(row)}`);
     await page.reload({ waitUntil: 'networkidle' });
     await page.locator('#nav-customer-feedback').click();
-    await page.getByText(content).waitFor();
+    await page.locator('#customer-feedback-list tbody tr').filter({hasText:'qa_e2e_ui_product'}).click();
+    await page.locator('#modal-body').getByText(content,{exact:true}).waitFor();
+    await page.locator('.modal-close').click();
     return `DB rating=${row.rating}; nội dung tồn tại sau reload`;
   });
 
   await test('UI-07', 'Validation và gửi khảo sát qua giao diện', 'Bài trống bị chặn; bài hợp lệ lưu 4 đáp án và hiển thị đã hoàn thành', async () => {
     await page.locator('#nav-customer-surveys').click();
-    const card = page.locator('.survey-card').filter({ hasText: 'qa_e2e_ui_survey' });
+    const card = page.locator('#customer-survey-list tbody tr').filter({ hasText: 'qa_e2e_ui_survey' });
     await card.getByRole('button', { name: /Làm khảo sát/ }).click();
     const expectedConsoleStart = consoleErrors.length;
     const expectedHttpStart = httpErrors.length;
@@ -242,7 +248,7 @@ async function run() {
     await page.locator('.toast.success').filter({ hasText: 'Nộp khảo sát thành công' }).waitFor();
     const result = (await dbQuery(pool, `SELECT sr.id,(SELECT COUNT(*) FROM SurveyAnswers WHERE survey_result_id=sr.id) AS answer_count FROM SurveyResults sr WHERE survey_id=? AND customer_id=?`, [surveyId, qaCustomer.id]))[0];
     expect(result?.answer_count === 4, `DB=${JSON.stringify(result)}`);
-    const completedCard = page.locator('.survey-card').filter({ hasText: 'qa_e2e_ui_survey' });
+    const completedCard = page.locator('#customer-survey-list tbody tr').filter({ hasText: 'qa_e2e_ui_survey' });
     await completedCard.getByText('Đã hoàn thành').waitFor();
     return `Bài trống: chặn; DB answers=${result.answer_count}; UI=Đã hoàn thành`;
   });

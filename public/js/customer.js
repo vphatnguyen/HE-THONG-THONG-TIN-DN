@@ -1,3 +1,4 @@
+let customerProfileVersion;
 /* ============================================================
    customer.js – Customer Module: Home, Surveys, Feedback, Profile
    ============================================================ */
@@ -9,6 +10,7 @@ let customerHomePage = 1;
 const CUSTOMER_HOME_PAGE_SIZE = 12;
 
 async function renderCustomerHome() {
+  const requestedPage=state.currentPage;
   setPageHeader('🏠 Trang chủ', `Chào mừng trở lại, ${state.user.full_name}! 🌸`);
   showLoading();
   try {
@@ -20,7 +22,7 @@ async function renderCustomerHome() {
     const { customer } = profile;
     allCustomerHomeProducts = products || [];
     const upcomingProducts = allCustomerHomeProducts.filter(p => p.launch_status === 'UPCOMING');
-    const pendingSurveys = surveys.filter(s => s.already_submitted === 0);
+    const pendingSurveys = surveys.filter(s => Number(s.already_submitted)===0 && Number(s.can_participate)===1);
 
     // Extract dynamic & default categories
     const dynamicCats = Array.from(new Set(allCustomerHomeProducts.map(p => p.category).filter(Boolean)));
@@ -53,12 +55,12 @@ async function renderCustomerHome() {
         <div class="stat-card emerald">
           <div class="stat-icon">🧴</div>
           <div class="stat-value">${allCustomerHomeProducts.filter(p => p.launch_status === 'OFFICIAL').length}</div>
-          <div class="stat-label">Sản phẩm đang kinh doanh</div>
+          <div class="stat-label">Sản phẩm đang bán</div>
         </div>
         <div class="stat-card purple">
           <div class="stat-icon">🚫</div>
           <div class="stat-value">${upcomingProducts.length}</div>
-          <div class="stat-label">Sản phẩm ngừng KD</div>
+          <div class="stat-label">Sản phẩm ngừng bán</div>
         </div>
       </div>
 
@@ -101,9 +103,9 @@ async function renderCustomerHome() {
             ${categoryOptions}
           </select>
           <select id="cust-home-status" onchange="handleCustomerHomeFilter()" style="min-width:155px">
-            <option value="">Tất cả trạng thái KD</option>
-            <option value="OFFICIAL">Đang kinh doanh</option>
-            <option value="UPCOMING">Ngừng kinh doanh</option>
+            <option value="">Tất cả trạng thái bán</option>
+            <option value="OFFICIAL">Đang bán</option>
+            <option value="UPCOMING">Ngừng bán</option>
           </select>
           <select id="cust-home-review" onchange="handleCustomerHomeFilter()" style="min-width:165px">
             <option value="">Tất cả trạng thái đánh giá</option>
@@ -124,6 +126,7 @@ async function renderCustomerHome() {
         <div id="cust-home-products-pagination" style="margin-top:20px"></div>
       </div>
     `;
+    if (requestedPage!==state.currentPage) return;
     setPageContent(html);
     handleCustomerHomeFilter();
   } catch (e) { toast(e.message, 'error'); }
@@ -266,6 +269,7 @@ let filteredCustomerSurveys = [];
 let customerSurveyFilterTab = 'ALL';
 
 async function renderCustomerSurveys() {
+  const requestedPage=state.currentPage;
   setPageHeader('📋 Bài khảo sát của tôi', 'Tham gia khảo sát để giúp chúng tôi cải thiện sản phẩm');
   showLoading();
   try {
@@ -276,14 +280,14 @@ async function renderCustomerSurveys() {
 
     // Counts
     const allCount = allCustomerSurveys.length;
-    const pendingCount = allCustomerSurveys.filter(s => s.status === 'ACTIVE' && (!s.already_submitted || s.already_submitted === 0)).length;
+    const pendingCount = allCustomerSurveys.filter(s => customerSurveyStatus(s)==='PENDING').length;
     const completedCount = allCustomerSurveys.filter(s => Number(s.already_submitted) > 0).length;
-    const closedCount = allCustomerSurveys.filter(s => s.status === 'CLOSED').length;
+    const closedCount = allCustomerSurveys.filter(s => customerSurveyStatus(s)==='CLOSED').length;
 
     const html = `
       <!-- Search & Reactive Quick Filter Bar -->
       <div class="filter-bar" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:18px">
-        <input type="text" id="cust-survey-search" placeholder="🔍 Tìm theo tên bài khảo sát hoặc sản phẩm liên quan..." oninput="debounceCustomerSurveyFilter()" style="min-width:260px;flex:1">
+        <input type="text" id="cust-survey-search" placeholder="🔍 ID, tên khảo sát hoặc sản phẩm..." oninput="debounceCustomerSurveyFilter()" style="min-width:260px;flex:1">
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap" id="cust-survey-pills-group">
           <button type="button" class="filter-pill ${customerSurveyFilterTab === 'ALL' ? 'active' : ''}" onclick="setCustomerSurveyTab('ALL')" id="survey-tab-all">Tất cả (${allCount})</button>
           <button type="button" class="filter-pill ${customerSurveyFilterTab === 'PENDING' ? 'active' : ''}" onclick="setCustomerSurveyTab('PENDING')" id="survey-tab-pending">⏳ Chờ thực hiện (${pendingCount})</button>
@@ -296,6 +300,7 @@ async function renderCustomerSurveys() {
       <div id="customer-survey-list" class="survey-list"></div>
       <div id="customer-survey-pagination" style="margin-top:20px"></div>
     `;
+    if (requestedPage!==state.currentPage) return;
     setPageContent(html);
     handleCustomerSurveyFilter();
   } catch (e) { toast(e.message, 'error'); }
@@ -323,11 +328,11 @@ function handleCustomerSurveyFilter() {
   filteredCustomerSurveys = allCustomerSurveys.filter(s => {
     // Quick filter tab
     if (customerSurveyFilterTab === 'PENDING') {
-      if (s.status !== 'ACTIVE' || (s.already_submitted && Number(s.already_submitted) > 0)) return false;
+      if (customerSurveyStatus(s)!=='PENDING') return false;
     } else if (customerSurveyFilterTab === 'COMPLETED') {
       if (!s.already_submitted || Number(s.already_submitted) === 0) return false;
     } else if (customerSurveyFilterTab === 'CLOSED') {
-      if (s.status !== 'CLOSED') return false;
+      if (customerSurveyStatus(s)!=='CLOSED') return false;
     }
 
     // Keyword search
@@ -335,11 +340,13 @@ function handleCustomerSurveyFilter() {
       const title = (s.title || '').toLowerCase();
       const pNames = (s.product_names || '').toLowerCase();
       const desc = (s.description || '').toLowerCase();
-      if (!title.includes(kw) && !pNames.includes(kw) && !desc.includes(kw)) return false;
+      if (/^#?\d+$/.test(kw) && Number(s.id)!==Number(kw.replace(/^#/,''))) return false;
+      if (!String(s.id).includes(kw.replace(/^#/,'')) && !title.includes(kw) && !pNames.includes(kw) && !desc.includes(kw)) return false;
     }
     return true;
   });
 
+  filteredCustomerSurveys=refineList(filteredCustomerSurveys,'customer-survey','end_date');
   customerSurveyCurrentPage = 1;
   renderCustomerSurveysPage(1);
 }
@@ -347,69 +354,19 @@ function handleCustomerSurveyFilter() {
 const debounceCustomerSurveyFilter = debounce(handleCustomerSurveyFilter, 150);
 
 function resetCustomerSurveyFilters() {
+  listToolsState['customer-survey']={};
+  resetVisibleListTools('customer-survey');
   const searchInput = document.getElementById('cust-survey-search');
   if (searchInput) searchInput.value = '';
   setCustomerSurveyTab('ALL');
 }
 
-function renderCustomerSurveysPage(page) {
-  customerSurveyCurrentPage = page;
-  const listEl = document.getElementById('customer-survey-list');
-  const pagEl = document.getElementById('customer-survey-pagination');
-
-  const total = filteredCustomerSurveys.length;
-  const start = (page - 1) * CUSTOMER_SURVEY_PAGE_SIZE;
-  const pageItems = filteredCustomerSurveys.slice(start, start + CUSTOMER_SURVEY_PAGE_SIZE);
-
-  if (listEl) {
-    if (total === 0) {
-      listEl.innerHTML = `
-        <div class="page-empty">
-          <div class="empty-icon">📋</div>
-          <p>Không tìm thấy bài khảo sát nào phù hợp với bộ lọc</p>
-          <button class="btn btn-secondary btn-sm" onclick="resetCustomerSurveyFilters()" style="margin-top:12px">↺ Đặt lại bộ lọc</button>
-        </div>
-      `;
-    } else {
-      listEl.innerHTML = pageItems.map(s => {
-        const isCompleted = Number(s.already_submitted) > 0;
-        const isClosed = s.status === 'CLOSED';
-        return `
-          <div class="survey-card">
-            <div class="survey-icon">${isCompleted ? '✅' : (isClosed ? '🔒' : '📋')}</div>
-            <div class="survey-info">
-              <div class="survey-title">${escapeHtml(s.title)}</div>
-              <div class="survey-meta">
-                ${surveyStatusBadge(s.status)}
-                ${s.product_names ? `&nbsp;· 📦 ${escapeHtml(s.product_names)}` : ''}
-                &nbsp;· 📝 ${s.question_count} câu hỏi
-                ${s.end_date ? `&nbsp;· 🕐 Hạn: ${formatDate(s.end_date)}` : ''}
-              </div>
-              ${s.description ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px">${escapeHtml(s.description)}</div>` : ''}
-            </div>
-            <div class="survey-actions">
-              ${isCompleted
-                ? `<span class="badge badge-active">✅ Đã hoàn thành</span>`
-                : (isClosed 
-                    ? `<span class="badge badge-inactive">🔒 Đã kết thúc</span>`
-                    : `<button class="btn btn-primary btn-sm" onclick="startSurvey(${s.id})">▶️ Làm khảo sát</button>`
-                  )
-              }
-            </div>
-          </div>
-        `;
-      }).join('');
-    }
-  }
-
-  if (pagEl) {
-    pagEl.innerHTML = renderPaginationBar({
-      totalItems: total,
-      pageSize: CUSTOMER_SURVEY_PAGE_SIZE,
-      currentPage: page,
-      onPageChangeFnName: 'renderCustomerSurveysPage'
-    });
-  }
+function renderCustomerSurveysPage(page=1) {
+  const list=filteredCustomerSurveys;
+  customerSurveyCurrentPage=Math.max(1,Math.min(page,Math.ceil(list.length/CUSTOMER_SURVEY_PAGE_SIZE)||1));
+  const el=document.getElementById('customer-survey-list'); if(!el)return;
+  el.innerHTML=compactTable(['ID','Khảo sát','Trạng thái tham gia','Hạn tham gia','Hoàn thành lúc','Thao tác'],list.slice((customerSurveyCurrentPage-1)*CUSTOMER_SURVEY_PAGE_SIZE,customerSurveyCurrentPage*CUSTOMER_SURVEY_PAGE_SIZE).map(s=>`<tr ${detailRow('openCustomerSurveyDetail',s.id)}><td>#${s.id}</td><td>${escapeHtml(s.title)}</td><td>${customerSurveyStatus(s)==='COMPLETED'?'Đã hoàn thành':customerSurveyStatus(s)==='PENDING'?'Chưa tham gia':'Đã đóng / Hết hạn'}</td><td>${formatDate(s.end_date)}</td><td>${formatDateTime(s.submitted_at)}</td><td class="row-actions" onclick="event.stopPropagation()">${customerSurveyStatus(s)==='PENDING'?`<button class="btn btn-primary btn-sm" onclick="startSurvey(${s.id})">Làm khảo sát</button>`:'—'}</td></tr>`).join(''));
+  document.getElementById('customer-survey-pagination').innerHTML=renderPaginationBar({totalItems:list.length,pageSize:CUSTOMER_SURVEY_PAGE_SIZE,currentPage:customerSurveyCurrentPage,onPageChangeFnName:'renderCustomerSurveysPage'});
 }
 
 
@@ -418,13 +375,14 @@ async function startSurvey(id) {
   try {
     const data = await api('GET', `/api/customer/surveys/${id}`);
     const { survey, questions } = data;
+    if (data.submission || Number(survey.can_participate)!==1) { await openCustomerSurveyDetail(id); return; }
     const modalTitle = document.getElementById('modal-title');
     if (modalTitle) modalTitle.textContent = `📋 ${survey.title}`;
 
     let body = `
       <div style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.15);border-radius:10px;padding:14px;margin-bottom:16px">
-        <p style="font-size:13px;color:var(--text-secondary)">${survey.description || 'Cảm ơn bạn đã tham gia khảo sát!'}</p>
-        ${survey.product_names ? `<p style="font-size:12px;color:var(--text-muted);margin-top:4px">📦 Sản phẩm: <strong>${survey.product_names}</strong></p>` : ''}
+        <p style="font-size:13px;color:var(--text-secondary)">${escapeHtml(survey.description || 'Cảm ơn bạn đã tham gia khảo sát!')}</p>
+        ${survey.product_names ? `<p style="font-size:12px;color:var(--text-muted);margin-top:4px">📦 Sản phẩm: <strong>${escapeHtml(survey.product_names)}</strong></p>` : ''}
       </div>
       <form id="survey-form">
     `;
@@ -439,20 +397,20 @@ async function startSurvey(id) {
       if (q.question_type === 'SINGLE_CHOICE' && Array.isArray(q.options)) {
         body += `<div style="display:flex;flex-direction:column;gap:8px">`;
         q.options.forEach((opt) => {
-          const safeOpt = String(opt).replace(/"/g, '&quot;');
+          const safeOpt = escapeHtml(opt);
           body += `<label class="survey-option-label">
             <input type="radio" name="q${q.id}" value="${safeOpt}" style="accent-color:var(--rose-500)">
-            <span>${opt}</span>
+            <span>${escapeHtml(opt)}</span>
           </label>`;
         });
         body += `</div>`;
       } else if (q.question_type === 'MULTI_CHOICE' && Array.isArray(q.options)) {
         body += `<div style="display:flex;flex-direction:column;gap:8px">`;
         q.options.forEach(opt => {
-          const safeOpt = String(opt).replace(/"/g, '&quot;');
+          const safeOpt = escapeHtml(opt);
           body += `<label class="survey-option-label">
             <input type="checkbox" name="q${q.id}" value="${safeOpt}" style="accent-color:var(--rose-500)">
-            <span>${opt}</span>
+            <span>${escapeHtml(opt)}</span>
           </label>`;
         });
         body += `</div>`;
@@ -489,7 +447,7 @@ async function startSurvey(id) {
 
     document.getElementById('modal-body').innerHTML = body;
   } catch (e) {
-    document.getElementById('modal-body').innerHTML = `<p class="error-msg">${e.message}</p>`;
+    document.getElementById('modal-body').innerHTML = `<p class="error-msg">${escapeHtml(e.message)}</p>`;
   }
 }
 
@@ -584,6 +542,7 @@ let allCustomerFeedbacks = [];
 let filteredCustomerFeedbacks = [];
 
 async function renderCustomerFeedback() {
+  const requestedPage=state.currentPage;
   setPageHeader('💬 Đánh giá của tôi', 'Quản lý đánh giá sản phẩm bạn đã gửi',
     `<button class="btn btn-primary" onclick="openNewFeedbackModal()">➕ Gửi đánh giá mới</button>`);
   showLoading();
@@ -595,7 +554,7 @@ async function renderCustomerFeedback() {
     const html = `
       <!-- Live Search & Reactive Filter Bar -->
       <div class="filter-bar" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:18px">
-        <input type="text" id="cust-fb-search" placeholder="🔍 Tìm theo tên sản phẩm hoặc nội dung đánh giá..." oninput="debounceCustomerFeedbackFilter()" style="min-width:240px;flex:1">
+        <input type="text" id="cust-fb-search" placeholder="🔍 ID, tên sản phẩm hoặc nội dung..." oninput="debounceCustomerFeedbackFilter()" style="min-width:240px;flex:1">
         <select id="cust-fb-rating" onchange="handleCustomerFeedbackFilter()" style="min-width:170px">
           <option value="">Tất cả số sao</option>
           <option value="POSITIVE">⭐ Tích cực (4-5★)</option>
@@ -617,6 +576,7 @@ async function renderCustomerFeedback() {
       <div id="customer-feedback-list" class="feedback-list"></div>
       <div id="customer-feedback-pagination" style="margin-top:20px"></div>
     `;
+    if (requestedPage!==state.currentPage) return;
     setPageContent(html);
     handleCustomerFeedbackFilter();
   } catch (e) { toast(e.message, 'error'); }
@@ -632,7 +592,8 @@ function handleCustomerFeedbackFilter() {
       const pName = (f.product_name || '').toLowerCase();
       const content = (f.content || '').toLowerCase();
       const reply = (f.reply_content || '').toLowerCase();
-      if (!pName.includes(kw) && !content.includes(kw) && !reply.includes(kw)) return false;
+      if (/^#?\d+$/.test(kw) && Number(f.id)!==Number(kw.replace(/^#/,''))) return false;
+      if (!String(f.id).includes(kw.replace(/^#/,'')) && !pName.includes(kw) && !content.includes(kw) && !reply.includes(kw)) return false;
     }
     if (ratingVal) {
       const r = Number(f.rating);
@@ -647,6 +608,7 @@ function handleCustomerFeedbackFilter() {
     return true;
   });
 
+  filteredCustomerFeedbacks=refineList(filteredCustomerFeedbacks,'customer-feedback');
   customerFeedbackCurrentPage = 1;
   renderCustomerFeedbackPage(1);
 }
@@ -654,6 +616,8 @@ function handleCustomerFeedbackFilter() {
 const debounceCustomerFeedbackFilter = debounce(handleCustomerFeedbackFilter, 150);
 
 function resetCustomerFeedbackFilters() {
+  listToolsState['customer-feedback']={};
+  resetVisibleListTools('customer-feedback');
   const searchInput = document.getElementById('cust-fb-search');
   if (searchInput) searchInput.value = '';
   const ratingSelect = document.getElementById('cust-fb-rating');
@@ -663,63 +627,12 @@ function resetCustomerFeedbackFilters() {
   handleCustomerFeedbackFilter();
 }
 
-function renderCustomerFeedbackPage(page) {
-  customerFeedbackCurrentPage = page;
-  const listEl = document.getElementById('customer-feedback-list');
-  const pagEl = document.getElementById('customer-feedback-pagination');
-
-  const total = filteredCustomerFeedbacks.length;
-  const start = (page - 1) * CUSTOMER_FEEDBACK_PAGE_SIZE;
-  const pageItems = filteredCustomerFeedbacks.slice(start, start + CUSTOMER_FEEDBACK_PAGE_SIZE);
-
-  if (listEl) {
-    if (total === 0) {
-      listEl.innerHTML = `
-        <div class="page-empty">
-          <div class="empty-icon">💬</div>
-          <p>Không tìm thấy đánh giá nào phù hợp với bộ lọc.<br><a href="#" onclick="openNewFeedbackModal()">Gửi đánh giá ngay!</a></p>
-          <button class="btn btn-secondary btn-sm" onclick="resetCustomerFeedbackFilters()" style="margin-top:12px">↺ Đặt lại bộ lọc</button>
-        </div>
-      `;
-    } else {
-      listEl.innerHTML = pageItems.map(f => {
-        return `
-          <div class="feedback-card">
-            <div class="feedback-header">
-              <div class="feedback-meta">
-                <div class="feedback-customer">💄 ${escapeHtml(f.product_name)}</div>
-                <div class="feedback-product" style="font-size:11px;color:var(--text-muted)">${formatDateTime(f.created_at)}</div>
-              </div>
-              <div style="display:flex;align-items:center;gap:8px">
-                <div class="stars" style="color:#fbbf24">${renderStars(f.rating)}</div>
-                ${f.status === 'REPLIED'
-                  ? `<span class="badge badge-replied">✅ Đã được phản hồi</span>`
-                  : `<span class="badge badge-pending">🕐 Chờ phản hồi</span>
-                     <button class="btn btn-secondary btn-sm" onclick="openEditFeedbackModal(${f.id}, ${f.rating}, '${escapeHtml(f.content || '').replace(/'/g, "\\'")}', '${escapeHtml(f.product_name).replace(/'/g, "\\'")}')" style="margin-left:4px;font-size:11px;padding:3px 8px" title="Chỉnh sửa đánh giá khi chưa được phản hồi">✏️ Sửa</button>`
-                }
-              </div>
-            </div>
-            <p class="feedback-content">${escapeHtml(f.content || '(Không có nội dung)')}</p>
-            ${f.reply_content ? `
-              <div class="feedback-reply">
-                <div class="feedback-reply-label">💌 Phản hồi từ BeautyCRM:</div>
-                <div class="feedback-reply-text">${escapeHtml(f.reply_content)}</div>
-              </div>
-            ` : ''}
-          </div>
-        `;
-      }).join('');
-    }
-  }
-
-  if (pagEl) {
-    pagEl.innerHTML = renderPaginationBar({
-      totalItems: total,
-      pageSize: CUSTOMER_FEEDBACK_PAGE_SIZE,
-      currentPage: page,
-      onPageChangeFnName: 'renderCustomerFeedbackPage'
-    });
-  }
+function renderCustomerFeedbackPage(page=1) {
+  const list=filteredCustomerFeedbacks;
+  customerFeedbackCurrentPage=Math.max(1,Math.min(page,Math.ceil(list.length/CUSTOMER_FEEDBACK_PAGE_SIZE)||1));
+  const el=document.getElementById('customer-feedback-list'); if(!el)return;
+  el.innerHTML=compactTable(['ID','Sản phẩm','Số sao','Trạng thái','Thời gian','Thao tác'],list.slice((customerFeedbackCurrentPage-1)*CUSTOMER_FEEDBACK_PAGE_SIZE,customerFeedbackCurrentPage*CUSTOMER_FEEDBACK_PAGE_SIZE).map(f=>`<tr ${detailRow('openCustomerFeedbackDetail',f.id)}><td>#${f.id}</td><td>${escapeHtml(f.product_name)}</td><td>${f.rating}/5 ★</td><td>${feedbackBadge(f.status)}</td><td>${formatDateTime(f.created_at)}</td><td class="row-actions" onclick="event.stopPropagation()">${f.status==='PENDING'?`<button class="btn btn-secondary btn-sm" onclick="editCustomerFeedbackById(${f.id})">Sửa</button>`:'—'}</td></tr>`).join(''));
+  document.getElementById('customer-feedback-pagination').innerHTML=renderPaginationBar({totalItems:list.length,pageSize:CUSTOMER_FEEDBACK_PAGE_SIZE,currentPage:customerFeedbackCurrentPage,onPageChangeFnName:'renderCustomerFeedbackPage'});
 }
 
 
@@ -804,7 +717,8 @@ async function submitEditFeedback(feedbackId) {
   }
 
   try {
-    await api('PUT', `/api/customer/feedbacks/${feedbackId}`, { rating, content });
+    await api('PUT', `/api/customer/feedbacks/${feedbackId}`, {
+      _version:allCustomerFeedbacks.find(f=>Number(f.id)===Number(feedbackId))?.record_version, rating, content });
     toast('Cập nhật đánh giá thành công!', 'success');
     closeModal();
     renderCustomerFeedback();
@@ -949,7 +863,9 @@ function renderHasakiModalContent() {
 
   // 1. CTA Button HTML
   let ctaBtnHtml = '';
-  if (!isOfficial) {
+  if (myFb?.status === 'REPLIED') {
+    ctaBtnHtml = `<span class="badge badge-replied">Đánh giá đã được phản hồi</span>`;
+  } else if (!isOfficial) {
     ctaBtnHtml = `<span class="badge badge-locked" style="padding:7px 14px;font-size:12px;font-weight:700">🚫 Đã đóng nhận đánh giá mới</span>`;
   } else if (myFb) {
     ctaBtnHtml = `<button type="button" class="btn btn-warning btn-sm" style="font-weight:700;padding:8px 16px;box-shadow:0 3px 10px rgba(245,158,11,0.25)" onclick="toggleHasakiWriteSection(true)">✏️ Sửa đánh giá của bạn</button>`;
@@ -984,12 +900,11 @@ function renderHasakiModalContent() {
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
           <span class="badge" style="background:rgba(33,78,52,0.1);color:#214e34;font-weight:600;font-size:11.5px">${escapeHtml(p.category || 'Mỹ phẩm')}</span>
           ${p.supplier_name ? `<span class="badge" style="background:rgba(100,116,139,0.12);color:var(--text-secondary);font-size:11.5px">🏢 ${escapeHtml(p.supplier_name)}</span>` : ''}
-          ${isOfficial ? '<span class="badge badge-active">✓ Đang kinh doanh</span>' : '<span class="badge badge-locked">🚫 Ngừng kinh doanh</span>'}
+          ${isOfficial ? '<span class="badge badge-active">✓ Đang bán</span>' : '<span class="badge badge-locked">🚫 Ngừng bán</span>'}
         </div>
         <h2 style="font-size:19px;font-weight:800;color:var(--text-primary);margin-bottom:6px;line-height:1.4">${escapeHtml(p.name)}</h2>
         <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap">
           <span style="font-size:22px;font-weight:800;color:#e85a2a">${p.price ? formatCurrency(p.price) : 'Chưa định giá'}</span>
-          ${p.stock_quantity !== undefined && p.stock_quantity !== null ? `<span style="font-size:12.5px;color:var(--text-muted)">Tồn kho: ${p.stock_quantity} sản phẩm</span>` : ''}
         </div>
         ${p.description ? `<p style="font-size:13px;color:var(--text-secondary);margin-top:6px;line-height:1.4">${escapeHtml(p.description)}</p>` : ''}
       </div>
@@ -1147,7 +1062,7 @@ function renderHasakiReviewsList() {
           </span>
           ${isCurrentUserReview ? `
             <span class="badge" style="background:rgba(232,90,42,0.12);color:#e85a2a;font-size:11px;font-weight:700">(Bạn)</span>
-            <button type="button" class="btn btn-warning btn-sm" style="font-size:10.5px;padding:2px 7px;line-height:1" onclick="toggleHasakiWriteSection(true)">✏️ Sửa</button>
+            ${f.status === 'PENDING' ? `<button type="button" class="btn btn-warning btn-sm" style="font-size:10.5px;padding:2px 7px;line-height:1" onclick="toggleHasakiWriteSection(true)">✏️ Sửa</button>` : ''}
           ` : ''}
         </div>
 
@@ -1229,6 +1144,10 @@ function setHasakiPage(page) {
 }
 
 function toggleHasakiWriteSection(isEdit = false) {
+  if (currentHasakiMyFeedback?.status === 'REPLIED') {
+    toast('Đánh giá đã được phản hồi, không thể chỉnh sửa.', 'error');
+    return;
+  }
   isWritingReviewOpen = !isWritingReviewOpen;
   const section = document.getElementById('hasaki-write-section');
   if (section) {
@@ -1286,7 +1205,7 @@ async function submitHasakiReview() {
 
   try {
     if (currentHasakiMyFeedback && currentHasakiMyFeedback.id) {
-      await api('PUT', `/api/customer/feedbacks/${currentHasakiMyFeedback.id}`, { rating, content });
+      await api('PUT', `/api/customer/feedbacks/${currentHasakiMyFeedback.id}`, { _version:currentHasakiMyFeedback.record_version, rating, content });
       toast('Đã cập nhật đánh giá của bạn thành công!', 'success');
     } else {
       await api('POST', '/api/customer/feedbacks', {
@@ -1372,10 +1291,12 @@ async function submitFeedback() {
 
 // ========== CUSTOMER: PROFILE ==========
 async function renderCustomerProfile() {
+  const requestedPage=state.currentPage;
   setPageHeader('👤 Hồ sơ cá nhân', 'Quản lý thông tin và sở thích làm đẹp của bạn');
   showLoading();
   try {
     const { account, customer } = await api('GET', '/api/customer/profile');
+    customerProfileVersion=account.record_version;
     const skinOptions = ['Da dầu', 'Da khô', 'Da hỗn hợp', 'Da nhạy cảm', 'Da thường'];
     const beautyPrefsOptions = BEAUTY_PREFERENCE_OPTIONS;
 
@@ -1386,10 +1307,10 @@ async function renderCustomerProfile() {
         <!-- Profile Header -->
         <div style="background:linear-gradient(135deg,rgba(244,63,94,0.1),rgba(168,85,247,0.1));border:1px solid var(--border);border-radius:var(--radius-xl);padding:28px;margin-bottom:24px;text-align:center">
           <div style="width:80px;height:80px;background:var(--grad-rose);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:800;color:white;margin:0 auto 14px;box-shadow:var(--glow-rose)">
-            ${account.full_name.charAt(0).toUpperCase()}
+            ${escapeHtml(account.full_name.charAt(0).toUpperCase())}
           </div>
-          <h2 style="font-size:20px;font-weight:800">${account.full_name}</h2>
-          <p style="color:var(--text-muted);font-size:13px">@${account.username}</p>
+          <h2 style="font-size:20px;font-weight:800">${escapeHtml(account.full_name)}</h2>
+          <p style="color:var(--text-muted);font-size:13px">@${escapeHtml(account.username)}</p>
           <div style="margin-top:10px;display:flex;justify-content:center;gap:8px">
             ${roleBadge(state.user.role)}
             ${statusBadge(account.status)}
@@ -1400,10 +1321,10 @@ async function renderCustomerProfile() {
         <div class="card">
           <div class="card-title">✏️ Chỉnh sửa thông tin</div>
           <form id="profile-form" style="display:flex;flex-direction:column;gap:14px">
-            <div class="form-group"><label>Họ và tên</label><input id="p-fullname" value="${account.full_name}"></div>
+            <div class="form-group"><label>Họ và tên</label><input id="p-fullname" value="${escapeHtml(account.full_name)}"></div>
             <div class="form-row">
-              <div class="form-group"><label>Email</label><input id="p-email" type="email" value="${account.email || ''}"></div>
-              <div class="form-group"><label>Số điện thoại</label><input id="p-phone" value="${account.phone || ''}"></div>
+              <div class="form-group"><label>Email</label><input id="p-email" type="email" value="${escapeHtml(account.email || '')}"></div>
+              <div class="form-group"><label>Số điện thoại</label><input id="p-phone" value="${escapeHtml(account.phone || '')}"></div>
             </div>
             <div class="form-row">
               <div class="form-group"><label>Độ tuổi</label><input id="p-age" type="number" min="13" max="100" value="${customer?.age || ''}"></div>
@@ -1441,12 +1362,13 @@ async function renderCustomerProfile() {
         <div class="card" style="margin-top:20px">
           <div class="card-title">🔒 Thông tin tài khoản</div>
           <table style="width:100%">
-            <tr><td style="padding:8px 0;color:#475569;font-weight:500;font-size:13px;width:40%">Tên đăng nhập</td><td style="font-weight:600">@${account.username}</td></tr>
+            <tr><td style="padding:8px 0;color:#475569;font-weight:500;font-size:13px;width:40%">Tên đăng nhập</td><td style="font-weight:600">@${escapeHtml(account.username)}</td></tr>
             <tr><td style="padding:8px 0;color:#475569;font-weight:500;font-size:13px">Ngày tạo tài khoản</td><td style="font-weight:600">${formatDate(account.created_at)}</td></tr>
           </table>
         </div>
       </div>
     `;
+    if (requestedPage!==state.currentPage) return;
     setPageContent(html);
   } catch (e) { toast(e.message, 'error'); }
 }
@@ -1468,6 +1390,7 @@ async function saveProfile() {
   const prefs = [...document.querySelectorAll('input[name="prefs"]:checked')].map(el => el.value).join(',');
   try {
     await api('PUT', '/api/customer/profile', {
+      _version:customerProfileVersion,
       full_name: document.getElementById('p-fullname').value.trim(),
       email: document.getElementById('p-email').value.trim(),
       phone: document.getElementById('p-phone').value.trim(),

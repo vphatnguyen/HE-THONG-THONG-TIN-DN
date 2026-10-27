@@ -1,0 +1,27 @@
+[
+  {
+    "id": "PRICE01",
+    "scenario": "Nhập theo nghìn tự lọc; rời ô hiển thị 150.000đ; không có nút Lọc giá",
+    "status": "PASS"
+  },
+  {
+    "id": "PRICE02",
+    "scenario": "Kết quả API đúng khoảng giá VND; không nhân nghìn lần nữa khi sửa",
+    "status": "PASS"
+  },
+  {
+    "id": "PRICE03",
+    "scenario": "Kết hợp sắp xếp giữ đúng khoảng giá đang lọc",
+    "status": "PASS"
+  },
+  {
+    "id": "PRICE04",
+    "scenario": "Giá sai/khoảng đảo không gọi API; xóa giá và Reset bỏ điều kiện",
+    "status": "PASS"
+  },
+  {
+    "id": "PRICE05",
+    "scenario": "Bộ lọc tự động dùng được ở 375px; không lỗi JavaScript",
+    "status": "PASS"
+  }
+]
