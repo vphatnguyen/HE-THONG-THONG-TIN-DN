@@ -113,7 +113,7 @@ async function run() {
     console.log('   Hasaki Star Filter Pills:', pills);
     assert(pills.some(p => p.includes('Tất cả')), 'Must have "Tất cả" filter pill');
     assert(pills.some(p => p.includes('5 ★')), 'Must have "5 ★" filter pill');
-    assert(pills.some(p => p.includes('Có phản hồi CSKH')), 'Must have "Có phản hồi CSKH" filter pill');
+    assert(pills.some(p => p.includes('Được CSKH trả lời')), 'Must have "Được CSKH trả lời" filter pill');
 
     // Verify reviews container
     const reviewCards = await page.$$('.hasaki-review-card');

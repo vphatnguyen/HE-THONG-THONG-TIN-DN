@@ -12,31 +12,31 @@
   "counts": [
     {
       "entity": "Accounts",
-      "n": 32
+      "n": 40
     },
     {
       "entity": "Customers",
-      "n": 28
+      "n": 36
     },
     {
       "entity": "Products",
-      "n": 39
+      "n": 51
     },
     {
       "entity": "Feedbacks",
-      "n": 24
+      "n": 32
     },
     {
       "entity": "Surveys",
-      "n": 28
+      "n": 36
     },
     {
       "entity": "SurveyResults",
-      "n": 11
+      "n": 15
     },
     {
       "entity": "SurveyAnswers",
-      "n": 17
+      "n": 21
     }
   ]
 }

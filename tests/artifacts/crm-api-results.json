@@ -110,7 +110,7 @@
     "scenario": "Customer sửa sau phản hồi",
     "expected": "400",
     "actual": {
-      "error": "Đánh giá đã được nhân viên chăm sóc khách hàng phản hồi, không thể chỉnh sửa."
+      "error": "Đánh giá đã được nhân viên chăm sóc khách hàng trả lời, không thể chỉnh sửa."
     },
     "status": "PASS"
   },
@@ -177,7 +177,7 @@
     "scenario": "Sửa khảo sát đã có kết quả",
     "expected": "409; cấu trúc giữ nguyên",
     "actual": {
-      "error": "Không thể chỉnh sửa cấu trúc khảo sát đã có phản hồi. Bạn vẫn có thể đóng khảo sát bằng nút trạng thái."
+      "error": "Không thể chỉnh sửa cấu trúc khảo sát đã có câu trả lời. Bạn vẫn có thể đổi trạng thái trong form sửa khảo sát."
     },
     "status": "PASS"
   },
@@ -410,6 +410,48 @@
     "scenario": "Khoảng ngày tính cả đầu ngày và toàn bộ cuối ngày",
     "expected": "API danh sách và Dashboard cùng loại trước/sau, nhận 00:00 và 23:59:59.9999999",
     "actual": "API danh sách và Dashboard cùng loại trước/sau, nhận 00:00 và 23:59:59.9999999",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM58",
+    "scenario": "Lưu bộ mẫu đủ 4 loại câu hỏi",
+    "expected": "201; giữ thứ tự, lựa chọn và bắt buộc trong DB/API",
+    "actual": "201; giữ thứ tự, lựa chọn và bắt buộc trong DB/API",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM59",
+    "scenario": "Validation bộ mẫu",
+    "expected": "400 cho tên/câu hỏi trống, loại sai, lựa chọn thiếu, nội dung trùng; không lưu một phần",
+    "actual": "400 cho tên/câu hỏi trống, loại sai, lựa chọn thiếu, nội dung trùng; không lưu một phần",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM60",
+    "scenario": "Tên trùng và gửi đồng thời",
+    "expected": "409 khi tên đã có; request đồng thời chỉ một bản ghi",
+    "actual": "409 khi tên đã có; request đồng thời chỉ một bản ghi",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM61",
+    "scenario": "Phân quyền và bộ mẫu riêng từng Manager",
+    "expected": "Customer 403; Manager khác không thấy mẫu; xóa tài khoản dọn mẫu riêng",
+    "actual": "Customer 403; Manager khác không thấy mẫu; xóa tài khoản dọn mẫu riêng",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM62",
+    "scenario": "Dùng mẫu tạo chiến dịch là bản sao độc lập",
+    "expected": "sửa/xóa chiến dịch không làm đổi câu hỏi mẫu",
+    "actual": "sửa/xóa chiến dịch không làm đổi câu hỏi mẫu",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM63",
+    "scenario": "Migration mẫu chạy lại an toàn; chi tiết feedback vẫn đúng chủ sở hữu",
+    "expected": "giữ mẫu hiện có; Customer khác 404; thông tin sản phẩm thuộc đánh giá chính mình",
+    "actual": "giữ mẫu hiện có; Customer khác 404; thông tin sản phẩm thuộc đánh giá chính mình",
     "status": "PASS"
   }
 ]

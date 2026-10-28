@@ -27,7 +27,7 @@ async function run(){
   await login('manager1','manager123');
   await check('UX01','Danh sách khách hàng','6 cột, có ID, không tự mở form sửa',async()=>{await navigate('manager-customers','#customers-tbody tr');assert.equal(await page.locator('thead th').count(),6);await page.locator('#customers-tbody tr').first().click();assert.match(await page.locator('#modal-title').textContent(),/Chi tiết/);assert.equal(await page.locator('#ec-fullname').count(),0);assert.match(await page.locator('#modal-body').textContent(),/ID khách hàng/);assert.doesNotMatch(await page.locator('#modal-body').textContent(),/ID tài khoản|Ngày tạo hồ sơ|Hạng thành viên|Điểm trung bình/);assert.match(await page.locator('#modal-body').textContent(),/Ngày tạo tài khoản/);await page.screenshot({path:'tests/artifacts/lean-customer-detail.png',fullPage:true,animations:'disabled'});});
   await check('UX02','Nút sửa không mở chi tiết','mở đúng form sửa',async()=>{await page.locator('#customers-tbody tr').first().getByRole('button',{name:'Sửa',exact:true}).click();await page.locator('#ec-fullname').waitFor();assert.match(await page.locator('#modal-title').textContent(),/Sửa/);});
-  await check('UX03','Nút khóa bị hủy không mở hàng','không modal, không đổi dữ liệu',async()=>{await page.locator('#customers-tbody tr').first().locator('button').nth(1).click();assert(await page.locator('#modal-overlay').evaluate(e=>e.classList.contains('hidden')));});
+  await check('UX03','Ẩn nút khóa ở danh sách khách hàng','khóa và mở khóa nằm trong form sửa',async()=>{assert.equal(await page.locator('#customers-tbody button[onclick^="toggleCustomerStatus"]').count(),0);await page.locator('#customers-tbody tr').first().getByRole('button',{name:'Sửa',exact:true}).click();await page.locator('#ec-status').waitFor();assert.deepEqual(await page.locator('#ec-status option').evaluateAll(items=>items.map(item=>item.value)),['ACTIVE','LOCKED']);});
   await check('UX04','Điều hướng chi tiết bằng bàn phím','Enter mở chi tiết',async()=>{await page.locator('#customers-tbody tr').first().focus();await page.keyboard.press('Enter');assert.match(await page.locator('#modal-title').textContent(),/Chi tiết/);});
   await check('UX05','Lọc ngày + sắp xếp + phân trang khách hàng','ngày đảo báo lỗi, reset phục hồi',async()=>{const tools=page.locator('[data-list-tools="customers"]');await tools.locator('[data-filter="from"]').fill('01/01/2099');assert.match(await page.locator('#customers-tbody').textContent(),/Không tìm thấy/);await tools.locator('[data-filter="to"]').fill('01/01/2020');assert.match(await tools.locator('[role="status"]').textContent(),/Từ ngày/);await page.locator('button[onclick="resetCustomerFilters()"]').click();await tools.locator('[data-filter="sort"]').selectOption('customer_id:asc');const ids=await page.locator('#customers-tbody tr td:first-child').allTextContents();const numbers=ids.map(t=>Number(t.replace('#','')));assert.deepEqual(numbers,[...numbers].sort((a,b)=>a-b));await page.screenshot({path:'tests/artifacts/crm-customers.png',fullPage:true,animations:'disabled'});});
   await check('UX06','Tìm khách hàng theo ID và xóa bộ lọc','đúng một bản ghi',async()=>{const id=(await page.locator('#customers-tbody tr td:first-child').first().textContent()).replace('#','');await page.locator('#cust-search').fill('#'+id);await page.waitForResponse(r=>r.url().includes('/api/manager/customers?')&&r.status()===200);await page.waitForFunction(()=>document.querySelectorAll('#customers-tbody tr').length===1);assert.match(await page.locator('#customers-tbody tr td:first-child').textContent(),new RegExp(id));await page.locator('button[onclick="resetCustomerFilters()"]').click();});
@@ -69,12 +69,12 @@ async function run(){
     await page.locator('#modal-body textarea').fill(uiReply+' đã sửa');
     await page.locator('#modal-body .detail-actions button').click();
     await page.waitForFunction(text=>document.querySelector('#modal-body textarea')?.dataset.previous===text,uiReply+' đã sửa');
-    assert.match(await page.locator('#modal-body').textContent(),/Lịch sử phản hồi/);
+    assert.match(await page.locator('#modal-body').textContent(),/Lịch sử trả lời feedback/);
     assert.equal(await page.locator('#modal-body dt').filter({hasText:'Nội dung sau'}).count(),beforeHistory+2);
   });
   await login('qa_e2e_customer_a','customer-pass');
-  await check('UX10','Đánh giá Customer danh sách/chi tiết','6 cột; chi tiết đầy đủ',async()=>{await navigate('customer-feedback','#customer-feedback-list tbody tr');assert.equal(await page.locator('#customer-feedback-list th').count(),6);assert.equal(await page.locator('#customer-feedback-list .feedback-content').count(),0);await page.locator('#customer-feedback-list tbody tr').first().click();await page.locator('#modal-body .record-details').first().waitFor();assert.match(await page.locator('#modal-body').textContent(),/Nội dung đánh giá/);});
-  await check('UX19','Customer xem phản hồi Manager mới nhất','hiện phản hồi đã sửa; không có nút sửa đánh giá',async()=>{await page.locator('#customer-feedback-list tbody tr').filter({hasText:'qa_e2e_ui_product'}).click();await page.locator('#modal-body .record-details').first().waitFor();assert((await page.locator('#modal-body').textContent()).includes(uiReply+' đã sửa'));assert.equal(await page.locator('#modal-body .detail-actions button').count(),0);});
+  await check('UX10','Đánh giá Customer danh sách/popup','6 cột; popup gọn, không ID/audit/lịch sử quản trị',async()=>{await navigate('customer-feedback','#customer-feedback-list tbody tr');assert.equal(await page.locator('#customer-feedback-list th').count(),6);await page.locator('#customer-feedback-list tbody tr').first().click();await page.locator('#modal-body .customer-feedback-popup').waitFor();assert.equal(await page.locator('#modal-body .record-details').count(),0);assert.match(await page.locator('#modal-body').textContent(),/Đánh giá của bạn/);assert.doesNotMatch(await page.locator('#modal-body').textContent(),/ID đánh giá|ID sản phẩm|Lịch sử chỉnh sửa|Lịch sử trả lời/);});
+  await check('UX19','Customer xem trả lời Manager mới nhất','hiện trả lời đã sửa; không có nút sửa đánh giá',async()=>{await page.locator('#customer-feedback-list tbody tr').filter({hasText:'qa_e2e_ui_product'}).click();await page.locator('#modal-body .customer-feedback-popup').waitFor();assert((await page.locator('#modal-body .customer-feedback-reply').textContent()).includes(uiReply+' đã sửa'));assert.equal(await page.locator('#modal-body button').filter({hasText:'Sửa đánh giá'}).count(),0);await page.screenshot({path:'tests/artifacts/customer-feedback-popup.png',fullPage:true,animations:'disabled'});});
   await check('UX11','Customer xem khảo sát hoàn thành','xem lại câu trả lời, không nút nộp/sửa',async()=>{await navigate('customer-surveys','#customer-survey-list tbody tr');await page.locator('#survey-tab-completed').click();await page.locator('#customer-survey-list tbody tr').filter({hasText:'Đã hoàn thành'}).first().click();await page.locator('#modal-body .record-details').first().waitFor();assert.match(await page.locator('#modal-body').textContent(),/Câu trả lời đã gửi/);assert.equal(await page.locator('#modal-body button').filter({hasText:/Nộp|Làm khảo sát|Sửa/}).count(),0);await page.screenshot({path:'tests/artifacts/crm-survey-history.png',fullPage:true,animations:'disabled'});});
   await check('UX12','Customer list 375px','cuộn ngang trong bảng, trang không tràn viewport',async()=>{await page.setViewportSize({width:375,height:812});await page.waitForFunction(()=>getComputedStyle(document.querySelector('#main-content')).marginLeft==='0px');const dims=await page.evaluate(()=>({client:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));assert(dims.scroll<=dims.client+1,JSON.stringify(dims));await page.screenshot({path:'tests/artifacts/crm-surveys-mobile.png',fullPage:true,animations:'disabled'});await page.setViewportSize({width:1440,height:1000});});
   await login('admin','admin123');
@@ -124,7 +124,7 @@ async function run(){
     await page.locator('#cust-home-search').fill('qa_e2e_ui_product');
     const card=page.locator('#cust-home-products-grid .product-card').filter({hasText:'qa_e2e_ui_product'});await card.click();
     await page.locator('#modal-body .hasaki-overview-box').waitFor();
-    const body=await page.locator('#modal-body').textContent();assert.doesNotMatch(body,/Tồn kho|OFFICIAL|UPCOMING/);assert.match(body,/Đang bán/);assert.match(body,/5[.,]0/);assert.equal(await page.locator('#modal-body button[onclick="toggleHasakiWriteSection(true)"]').count(),0);assert.match(body,/Đánh giá đã được phản hồi/);
+    const body=await page.locator('#modal-body').textContent();assert.doesNotMatch(body,/Tồn kho|OFFICIAL|UPCOMING/);assert.match(body,/Đang bán/);assert.match(body,/5[.,]0/);assert.equal(await page.locator('#modal-body button[onclick="toggleHasakiWriteSection(true)"]').count(),0);assert.match(body,/Đánh giá đã được trả lời/);
     await page.screenshot({path:'tests/artifacts/lean-customer-product.png',fullPage:true,animations:'disabled'});
   });
   await login('admin','admin123');
@@ -165,6 +165,118 @@ async function run(){
       if(route==='manager-products') {assert.equal(await page.locator('[data-list-tools="products"] [data-filter="sort"]').count(),0);assert.equal(await page.locator('#prod-sort').count(),1);}
       if(route==='manager-feedbacks') {assert.equal(await page.locator('#fb-filter-tabs').count(),0);assert.equal(await page.locator('#fb-rating').count(),1);}
     }
+  });
+  await check('UX29','Click và Enter ở bảng phân tích sản phẩm → feedback → chi tiết','không nút xem người đánh giá; mở đúng ID feedback và form trả lời',async()=>{
+    await navigate('manager-analytics','#analytics-products-tbody tr');
+    assert.equal(await page.getByRole('button',{name:/Xem người đánh giá/}).count(),0);
+    assert.equal(await page.locator('#analytics-products-tbody').locator('..').locator('thead th').count(),5);
+    const row=page.locator('#analytics-products-tbody tr').filter({hasText:'qa_e2e_ui_product'});
+    await page.locator('#analytics-product-search').fill('qa_e2e_ui_product');await row.click();
+    await page.locator('#modal-body tbody tr.row-clickable').first().waitFor();
+    const id=Number((await page.locator('#modal-body tbody tr td').first().textContent()).replace('#',''));
+    await page.locator('#modal-body tbody tr').first().click();await page.locator('#modal-body textarea').waitFor();
+    assert.equal(await page.locator('#modal-body .record-details dd').first().textContent(),String(id));
+    assert.match(await page.locator('#modal-body').textContent(),/Nội dung trả lời feedback|Sửa trả lời feedback/);
+    await page.locator('.modal-close').click();await row.focus();await page.keyboard.press('Enter');
+    await page.locator('#modal-body tbody tr.row-clickable').first().waitFor();
+  });
+  await check('UX30','Click và Enter ở bảng phân tích khảo sát','không nút Chi tiết; mở kết quả đúng khảo sát',async()=>{
+    await navigate('manager-analytics','#analytics-surveys-tbody tr');
+    assert.equal(await page.locator('#analytics-surveys-tbody button').count(),0);
+    const row=page.locator('#analytics-surveys-tbody tr').first();const title=(await row.locator('td').first().locator('div').first().textContent()).trim();
+    await row.click();await page.locator('#modal-body .survey-summary-chips').waitFor();
+    assert((await page.locator('#modal-title').textContent()).includes(title));
+    await page.locator('.modal-close').click();await row.focus();await page.keyboard.press('Enter');await page.locator('#modal-body .survey-summary-chips').waitFor();
+    await page.screenshot({path:'tests/artifacts/manager-analytics-click.png',fullPage:true,animations:'disabled'});
+  });
+  await check('UX31','Sửa trạng thái khảo sát đã có câu trả lời','đóng trong form sửa; giữ nguyên câu hỏi, người nhận và số kết quả',async()=>{
+    await navigate('manager-surveys','#manager-survey-list tbody tr');
+    assert.equal(await page.locator('#manager-survey-list button[onclick^="manageSurveyRecipients"],#manager-survey-list button[onclick^="updateSurveyStatus"]').count(),0);
+    const survey=await page.evaluate(()=>currentManagerSurveysList.find(s=>Number(s.response_count)>0));assert(survey);
+    const before=await page.evaluate(id=>api('GET',`/api/manager/surveys/${id}`),survey.id);
+    try {
+      await page.evaluate(id=>openEditSurveyModal(id),survey.id);await page.locator('#esv-status').waitFor();
+      assert.equal(await page.locator('#esv-title,input[name="esv-recipient"]').count(),0);
+      assert.match(await page.locator('#modal-body').textContent(),/Người nhận \(chỉ xem\)/);
+      await page.locator('#esv-status').selectOption('CLOSED');await page.getByRole('button',{name:'Lưu trạng thái',exact:true}).click();
+      await page.waitForFunction(()=>document.querySelector('#modal-overlay').classList.contains('hidden'));
+      const after=await page.evaluate(id=>api('GET',`/api/manager/surveys/${id}`),survey.id);
+      assert.equal(after.status,'CLOSED');assert.equal(after.response_count,before.response_count);
+      assert.deepEqual(after.questions,before.questions);assert.deepEqual(after.recipient_customer_ids,before.recipient_customer_ids);
+    } finally {await page.evaluate(({id,status})=>api('PUT',`/api/manager/surveys/${id}/status`,{status}),survey);}
+  });
+  await check('UX32','Người nhận và đóng khảo sát chưa có kết quả nằm trong form sửa','lưu danh sách người nhận và trạng thái bằng form; không nút riêng ngoài bảng',async()=>{
+    const data=await page.evaluate(async()=>{
+      const products=await api('GET','/api/products'),customers=await api('GET','/api/manager/customers?status=ACTIVE');
+      const ids=customers.slice(0,2).map(c=>c.customer_id);if(ids.length<2)throw new Error('Thiếu khách fixture');
+      const created=await api('POST','/api/manager/surveys',{title:'QA manager compact '+Date.now(),target_product_ids:[products.find(p=>p.launch_status==='OFFICIAL').id],recipient_customer_ids:[ids[0]],questions:[{question_text:'Câu hỏi UI',question_type:'TEXT',is_required:false}]});
+      return {id:created.id,ids};
+    });
+    try {
+      await page.evaluate(id=>openEditSurveyModal(id),data.id);await page.locator('#esv-title').waitFor();
+      await page.locator(`input[name="esv-recipient"][value="${data.ids[1]}"]`).check();await page.locator('#esv-status').selectOption('CLOSED');
+      await page.locator('#modal-body button[onclick^="updateSurvey("]').click();
+      await page.waitForFunction(()=>document.querySelector('#modal-overlay').classList.contains('hidden'));
+      const survey=await page.evaluate(id=>api('GET',`/api/manager/surveys/${id}`),data.id);
+      assert.equal(survey.status,'CLOSED');assert.deepEqual(survey.recipient_customer_ids.slice().sort((a,b)=>a-b),data.ids.slice().sort((a,b)=>a-b));
+    } finally {await page.evaluate(id=>api('DELETE',`/api/manager/surveys/${id}`),data.id);}
+  });
+  await check('UX33','Cột thao tác khách hàng cố định và nút Sửa thẳng hàng','cùng tọa độ và chiều rộng; không nút khóa; giao diện dùng Feedback',async()=>{
+    await navigate('manager-customers','#customers-tbody tr');
+    const boxes=await page.locator('#customers-tbody .customer-row-actions button:first-child').evaluateAll(buttons=>buttons.map(b=>{const r=b.getBoundingClientRect();return{x:r.x,width:r.width};}));
+    assert(boxes.length>1);assert(boxes.every(b=>Math.abs(b.x-boxes[0].x)<1 && b.width===boxes[0].width));
+    assert.equal(await page.locator('#customers-tbody button[onclick^="toggleCustomerStatus"]').count(),0);
+    assert.equal(await page.locator('#customers-tbody .customer-actions-cell').first().evaluate(e=>getComputedStyle(e).position),'sticky');
+    assert.match(await page.locator('#nav-manager-feedbacks').textContent(),/Feedback/);
+    await page.screenshot({path:'tests/artifacts/manager-customer-actions.png',fullPage:true,animations:'disabled'});
+  });
+  let uiTemplateName,uiTemplateQuestions;
+  await check('UX34','Lưu bộ câu hỏi có tên và nạp lại ở phiên mới','giữ 4 loại, thứ tự, lựa chọn/bắt buộc; lưu không làm mất form',async()=>{
+    await navigate('manager-surveys','#manager-survey-list');await page.locator('#header-actions button').click();await page.locator('#sv-title').waitFor();
+    await page.evaluate(()=>{applySurveyTemplate('BEAUTY_PREF');addSurveyQuestionWithData('Góp ý riêng','TEXT','',false);});
+    uiTemplateQuestions=await page.evaluate(()=>collectCreateSurveyQuestions());uiTemplateName='QA mẫu UI <b>& '+Date.now();
+    await page.getByRole('button',{name:'Lưu danh sách thành bộ mẫu',exact:true}).click();await page.locator('#sv-template-name').fill(uiTemplateName);
+    await page.getByRole('button',{name:'Lưu bộ mẫu',exact:true}).click();await page.locator('#sv-template-message').filter({hasText:'Đã lưu bộ mẫu'}).waitFor();
+    assert.deepEqual(await page.evaluate(()=>collectCreateSurveyQuestions()),uiTemplateQuestions);assert.equal(await page.locator('#sv-question-template b').count(),0);
+    await page.locator('.modal-close').click();await login('manager1','manager123');await navigate('manager-surveys','#manager-survey-list');await page.locator('#header-actions button').click();await page.locator('#sv-question-template').waitFor();
+    const id=await page.evaluate(name=>savedQuestionTemplates.find(t=>t.name===name).id,uiTemplateName);await page.locator('#sv-question-template').selectOption(String(id));
+    await page.getByRole('button',{name:'Dùng bộ mẫu',exact:true}).click();assert.deepEqual(await page.evaluate(()=>collectCreateSurveyQuestions()),uiTemplateQuestions);
+    await page.locator('#q-text-1').fill('Câu riêng cho chiến dịch');
+    const saved=await page.evaluate(async name=>(await api('GET','/api/manager/question-templates')).find(t=>t.name===name),uiTemplateName);assert.deepEqual(saved.questions,uiTemplateQuestions);
+    await page.screenshot({path:'tests/artifacts/question-template-create.png',fullPage:true,animations:'disabled'});
+  });
+  await check('UX35','Lỗi lưu và hủy thay câu hỏi không mất bản đang soạn','hiện lỗi tại form, giữ tên/câu hỏi; chỉ thay khi xác nhận',async()=>{
+    await page.locator('#header-actions button').click();await page.locator('#sv-title').waitFor();await page.locator('#q-text-1').fill('Giữ nguyên câu đang soạn');
+    await page.getByRole('button',{name:'Lưu danh sách thành bộ mẫu',exact:true}).click();await page.getByRole('button',{name:'Lưu bộ mẫu',exact:true}).click();await page.locator('#sv-template-message').filter({hasText:'Tên bộ mẫu'}).waitFor();
+    assert.equal(await page.locator('#q-text-1').inputValue(),'Giữ nguyên câu đang soạn');await page.locator('#sv-template-name').fill('Mẫu đang soạn');
+    await page.route('**/api/manager/question-templates',route=>route.request().method()==='POST'?route.fulfill({status:500,contentType:'application/json',body:JSON.stringify({error:'QA lỗi lưu mẫu'})}):route.continue());
+    try {await page.getByRole('button',{name:'Lưu bộ mẫu',exact:true}).click();await page.locator('#sv-template-message').filter({hasText:'QA lỗi lưu mẫu'}).waitFor();assert.equal(await page.locator('#sv-template-name').inputValue(),'Mẫu đang soạn');assert.equal(await page.locator('#q-text-1').inputValue(),'Giữ nguyên câu đang soạn');}
+    finally {await page.unroute('**/api/manager/question-templates');}
+    const id=await page.evaluate(name=>savedQuestionTemplates.find(t=>t.name===name).id,uiTemplateName);await page.locator('#sv-question-template').selectOption(String(id));
+    await page.getByRole('button',{name:'Dùng bộ mẫu',exact:true}).click();assert.equal(await page.locator('#q-text-1').inputValue(),'Giữ nguyên câu đang soạn');
+    try {acceptDialogs=true;await page.getByRole('button',{name:'Dùng bộ mẫu',exact:true}).click();} finally {acceptDialogs=false;}
+    assert.deepEqual(await page.evaluate(()=>collectCreateSurveyQuestions()),uiTemplateQuestions);
+  });
+  await check('UX36','Ẩn email/số điện thoại trên người nhận cả tạo và sửa','giữ chọn khách, tên, tài khoản và thông tin phân nhóm',async()=>{
+    await page.locator('#header-actions button').click();await page.locator('.sv-recipient-item').first().waitFor();
+    const hidden=prefix=>page.locator(`.${prefix}-recipient-item`).evaluateAll(items=>items.every(item=>{const text=item.textContent;return (!item.dataset.email || !text.includes(item.dataset.email)) && (!item.dataset.phone || !text.includes(item.dataset.phone));}));
+    assert(await hidden('sv'));await page.locator('.modal-close').click();
+    const id=await page.evaluate(async()=>{const products=await api('GET','/api/products');return(await api('POST','/api/manager/surveys',{title:'QA recipient compact '+Date.now(),target_product_ids:[products[0].id],questions:[{question_text:'Ý kiến',question_type:'TEXT',is_required:false}]})).id;});
+    try {await page.evaluate(id=>openEditSurveyModal(id),id);await page.locator('.esv-recipient-item').first().waitFor();assert(await hidden('esv'));assert(await page.locator('input[name="esv-recipient"]').count()>0);await page.locator('.modal-close').click();}
+    finally {await page.evaluate(id=>api('DELETE',`/api/manager/surveys/${id}`),id);}
+  });
+  await login('qa_e2e_customer_a','customer-pass');
+  await check('UX37','Popup Customer chỉ hiển thị đánh giá của mình và reply; dùng được ở 375px','không API quản trị/audit; không ID/lịch sử; reply mới và sản phẩm đúng',async()=>{
+    await navigate('customer-feedback','#customer-feedback-list tbody tr');const requested=[];
+    const listener=r=>{if(r.url().includes('/api/'))requested.push(new URL(r.url()).pathname);};page.on('request',listener);
+    try {await page.locator('#customer-feedback-list tbody tr').filter({hasText:'qa_e2e_ui_product'}).click();await page.locator('#modal-body .customer-feedback-popup').waitFor();}
+    finally {page.off('request',listener);}
+    assert(requested.length>0);assert(requested.every(path=>/^\/api\/customer\/feedbacks\/\d+$/.test(path)));
+    assert.match(await page.locator('.customer-feedback-product h3').textContent(),/qa_e2e_ui_product/);assert((await page.locator('.customer-feedback-reply').textContent()).includes(uiReply+' đã sửa'));
+    assert.equal(await page.locator('#modal-body .record-details, #modal-body textarea').count(),0);await page.setViewportSize({width:375,height:812});
+    await page.waitForFunction(()=>getComputedStyle(document.querySelector('#main-content')).marginLeft==='0px');
+    const dims=await page.evaluate(()=>({client:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));assert(dims.scroll<=dims.client+1,JSON.stringify(dims));
+    await page.screenshot({path:'tests/artifacts/customer-feedback-mobile.png',fullPage:true,animations:'disabled'});
   });
   await check('UX16','Lỗi JavaScript toàn bộ flow','0 pageerror',async()=>assert.deepEqual(errors,[]));
   fs.writeFileSync('tests/artifacts/crm-ui-results.json',JSON.stringify(results,null,2));

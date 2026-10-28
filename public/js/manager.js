@@ -134,18 +134,18 @@ async function renderManagerDashboard() {
         </div>
         <div class="stat-card warning clickable" style="border-left: 4px solid #f59e0b;" 
              onclick="navigateToReplyFeedbacks({ tab: 'PENDING' })" 
-             title="Nhấp để xem danh sách phản hồi chờ xử lý">
+             title="Nhấp để xem danh sách feedback chờ xử lý">
           <div class="stat-icon">⚠️</div>
           <div class="stat-value" style="color:#d97706; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px;">
-            <span title="Chờ phản hồi">${stats.pendingFeedbacks}</span>
+            <span title="Chờ trả lời">${stats.pendingFeedbacks}</span>
             ${stats.negativeFeedbacks > 0 ? `
               <small class="badge-interactive" style="font-size:11px;color:#ef4444;font-weight:700;padding:2px 8px;border-radius:12px;background:rgba(239,68,68,0.12)" 
                      onclick="event.stopPropagation(); navigateToReplyFeedbacks({ tab: 'NEGATIVE' })" 
-                     title="Nhấp để lọc phản hồi tiêu cực (1-2★)">
+                     title="Nhấp để lọc feedback tiêu cực (1-2★)">
                 (${stats.negativeFeedbacks} tiêu cực)
               </small>` : ''}
           </div>
-          <div class="stat-label">Phản hồi chờ xử lý</div>
+          <div class="stat-label">Feedback chờ xử lý</div>
         </div>
         <div class="stat-card gold">
           <div class="stat-icon">⭐</div>
@@ -157,7 +157,7 @@ async function renderManagerDashboard() {
           <div class="stat-value" style="font-size:18px">
             ${stats.repliedFeedbacks}/${stats.totalFeedbacks} <small style="font-size:12px;color:var(--text-muted)">(${stats.feedbackReplyRate}%)</small>
           </div>
-          <div class="stat-label">Phản hồi (đã trả lời)</div>
+          <div class="stat-label">Feedback (đã trả lời)</div>
         </div>
         <div class="stat-card emerald">
           <div class="stat-icon">📋</div>
@@ -668,10 +668,10 @@ async function renderManagerAnalytics() {
     const html = `
       ${analyticsFilterHtml('renderManagerAnalytics')}
 
-      <!-- KHU VỰC XẾP HẠNG & PHÂN TÍCH SẢN PHẨM THEO PHẢN HỒI -->
+      <!-- KHU VỰC XẾP HẠNG & PHÂN TÍCH SẢN PHẨM THEO FEEDBACK -->
       <div class="card" style="margin-top:20px">
         <div class="table-card-header">
-          <div class="card-title" style="margin-bottom:0">⭐ Xếp hạng & Phân tích sản phẩm theo phản hồi</div>
+          <div class="card-title" style="margin-bottom:0">⭐ Xếp hạng & Phân tích sản phẩm theo feedback</div>
           <div class="table-toolbar-right" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <input type="text" id="analytics-product-search" placeholder="🔍 Tìm tên sản phẩm..."
                    value="${escapeHtml(analyticsProductSearch)}"
@@ -685,7 +685,7 @@ async function renderManagerAnalytics() {
               ${supplierOptions}
             </select>
             <select id="analytics-product-sort" onchange="handleAnalyticsProductSort(this.value)">
-              <option value="COUNT_DESC" ${analyticsProductSort === 'COUNT_DESC' ? 'selected' : ''}>Nhiều phản hồi nhất</option>
+              <option value="COUNT_DESC" ${analyticsProductSort === 'COUNT_DESC' ? 'selected' : ''}>Nhiều feedback nhất</option>
               <option value="RATING_DESC" ${analyticsProductSort === 'RATING_DESC' ? 'selected' : ''}>Điểm cao nhất</option>
               <option value="RATING_ASC" ${analyticsProductSort === 'RATING_ASC' ? 'selected' : ''}>Điểm thấp nhất</option>
             </select>
@@ -718,10 +718,9 @@ async function renderManagerAnalytics() {
               <tr>
                 <th>SẢN PHẨM</th>
                 <th>ĐIỂM TB & PHÂN BỔ</th>
-                <th>SỐ PHẢN HỒI</th>
-                <th>PHẢN HỒI CSKH</th>
+                <th>SỐ FEEDBACK</th>
+                <th>TRẢ LỜI FEEDBACK</th>
                 <th>TRẠNG THÁI CHẤT LƯỢNG</th>
-                <th style="text-align:center">KHÁCH HÀNG ĐÁNH GIÁ</th>
               </tr>
             </thead>
             <tbody id="analytics-products-tbody">
@@ -759,9 +758,8 @@ async function renderManagerAnalytics() {
                 <th style="text-align:center">QUY MÔ</th>
                 <th>TRẠNG THÁI</th>
                 <th style="text-align:center">NGƯỜI NHẬN</th>
-                <th style="text-align:center">PHẢN HỒI</th>
+                <th style="text-align:center">FEEDBACK</th>
                 <th style="min-width:140px">TỶ LỆ HOÀN THÀNH</th>
-                <th style="text-align:center">HÀNH ĐỘNG</th>
               </tr>
             </thead>
             <tbody id="analytics-surveys-tbody">
@@ -886,7 +884,7 @@ function filterAndRenderSurveyOverview() {
   if (!tbody) return;
 
   if (list.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:30px;color:var(--text-muted)">Không có chiến dịch khảo sát nào phù hợp điều kiện lọc</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--text-muted)">Không có chiến dịch khảo sát nào phù hợp điều kiện lọc</td></tr>`;
     return;
   }
 
@@ -904,7 +902,7 @@ function filterAndRenderSurveyOverview() {
     }
 
     return `
-      <tr>
+      <tr ${detailRow('openAnalyticsSurveyDetail',s.id)}>
         <td>
           <div style="font-weight:700;color:var(--text-primary);font-size:13px">${escapeHtml(s.title)}</div>
           ${s.description ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;max-width:240px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${escapeHtml(s.description)}</div>` : ''}
@@ -929,9 +927,6 @@ function filterAndRenderSurveyOverview() {
             </div>
             <span style="font-weight:600;font-size:12px">${pct}%</span>
           </div>
-        </td>
-        <td style="text-align:center">
-          <button class="btn btn-secondary btn-sm" onclick="viewSurveyResults(${s.id},${escapeHtml(JSON.stringify(s.title))})">📊 Chi tiết</button>
         </td>
       </tr>
     `;
@@ -1005,7 +1000,7 @@ function filterAndRenderAnalyticsProducts() {
   if (!tbody) return;
 
   if (list.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--text-muted)">Không có sản phẩm nào phù hợp điều kiện lọc</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:30px;color:var(--text-muted)">Không có sản phẩm nào phù hợp điều kiện lọc</td></tr>`;
     if (paginationEl) paginationEl.innerHTML = '';
     return;
   }
@@ -1033,7 +1028,7 @@ function filterAndRenderAnalyticsProducts() {
     const metaLine = [catPart, supPart].filter(Boolean).join(' • ');
 
     return `
-      <tr>
+      <tr ${detailRow('openAnalyticsFeedbackList',p.product_id)}>
         <td>
           <strong style="color:var(--text-primary)">${escapeHtml(p.product_name)}</strong>
           ${metaLine ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px">${metaLine}</div>` : ''}
@@ -1047,21 +1042,16 @@ function filterAndRenderAnalyticsProducts() {
         <td>
           <div style="display:flex;align-items:center;gap:6px">
             <span>${p.count} lượt</span>
-            ${p.negative_count > 0 ? `<span class="badge badge-interactive" style="background:rgba(239,68,68,0.15);color:#ef4444;font-size:10px;cursor:pointer" onclick="navigateToReplyFeedbacks({ tab: 'NEGATIVE', search: ${escapeHtml(JSON.stringify(p.product_name))} })" title="Xem ${p.negative_count} phản hồi tiêu cực (1-2★) của sản phẩm này">${p.negative_count} tiêu cực ↗</span>` : ''}
+            ${p.negative_count > 0 ? `<span class="badge badge-interactive" style="background:rgba(239,68,68,0.15);color:#ef4444;font-size:10px;cursor:pointer" onclick="event.stopPropagation();navigateToReplyFeedbacks({ tab: 'NEGATIVE', search: ${escapeHtml(JSON.stringify(p.product_name))} })" title="Xem ${p.negative_count} feedback tiêu cực (1-2★) của sản phẩm này">${p.negative_count} tiêu cực ↗</span>` : ''}
           </div>
         </td>
         <td>
           <div style="display:flex;align-items:center;gap:6px">
             <span>${p.replied_count || 0}/${p.count} (${replyRate}%)</span>
-            ${p.pending_count > 0 ? `<span class="badge badge-pending badge-interactive" style="font-size:10px;cursor:pointer" onclick="navigateToReplyFeedbacks({ tab: 'PENDING', search: ${escapeHtml(JSON.stringify(p.product_name))} })" title="Xem ${p.pending_count} phản hồi chờ xử lý của sản phẩm này">${p.pending_count} chờ xử lý ↗</span>` : ''}
+            ${p.pending_count > 0 ? `<span class="badge badge-pending badge-interactive" style="font-size:10px;cursor:pointer" onclick="event.stopPropagation();navigateToReplyFeedbacks({ tab: 'PENDING', search: ${escapeHtml(JSON.stringify(p.product_name))} })" title="Xem ${p.pending_count} feedback chờ xử lý của sản phẩm này">${p.pending_count} chờ xử lý ↗</span>` : ''}
           </div>
         </td>
         <td>${qualityBadge}</td>
-        <td style="text-align:center">
-          <button class="btn btn-secondary btn-sm" onclick="openProductReviewersModal(${p.product_id}, ${escapeHtml(JSON.stringify(p.product_name))})">
-            👥 Xem người đánh giá
-          </button>
-        </td>
       </tr>
     `;
   }).join('');
@@ -1076,83 +1066,23 @@ function filterAndRenderAnalyticsProducts() {
   }
 }
 
+function openAnalyticsFeedbackList(id) {
+  const product=currentFeedbackProducts.find(p=>Number(p.product_id)===Number(id));
+  if(product) return openProductReviewersModal(id,product.product_name);
+}
+function openAnalyticsSurveyDetail(id) {
+  const survey=currentSurveyOverview.find(s=>Number(s.id)===Number(id));
+  if(survey) return viewSurveyResults(id,survey.title);
+}
 async function openProductReviewersModal(productId, productName) {
-  showModal(`👥 Khách hàng đánh giá: ${escapeHtml(productName)}`, `
-    <div style="text-align:center;padding:30px"><div class="spinner"></div></div>
-  `, true);
-
+  showModal(`Feedback: ${productName}`,'Đang tải…',true);
+  const requestVersion=modalRequestVersion;
   try {
-    const res = await api('GET', `/api/manager/products/${productId}/feedbacks`);
-    const feedbacks = res.feedbacks || [];
-    if (feedbacks.length === 0) {
-      document.querySelector('.modal-body').innerHTML = `
-        <div class="page-empty" style="padding:40px 20px">
-          <div class="empty-icon">💬</div>
-          <p>Chưa có khách hàng nào đánh giá sản phẩm này.</p>
-        </div>
-      `;
-      return;
-    }
-
-    const html = `
-      <div style="margin-bottom:14px;color:var(--text-muted);font-size:13px">
-        Tổng cộng <strong>${feedbacks.length}</strong> lượt phản hồi từ khách hàng cho sản phẩm này:
-      </div>
-      <div style="display:flex;flex-direction:column;gap:12px;max-height:65vh;overflow-y:auto;padding-right:4px">
-        ${feedbacks.map(f => {
-      const ageDisplay = f.age ? `${f.age} tuổi` : 'Chưa rõ tuổi';
-      const skinDisplay = f.skin_type || 'Chưa rõ loại da';
-      const contact = [f.email, f.phone].filter(Boolean).join(' · ');
-      const isReplied = f.status === 'REPLIED';
-
-      return `
-            <div style="border:1px solid var(--border);border-radius:var(--radius);padding:14px;background:var(--bg-card)">
-              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:8px">
-                <div>
-                  <div style="display:flex;align-items:center;gap:8px">
-                    <strong style="font-size:14px">${escapeHtml(f.full_name || 'Khách hàng')}</strong>
-                    <span class="tag" style="font-size:11px;background:rgba(45,106,79,0.1);color:var(--green-700)">🧴 ${escapeHtml(skinDisplay)}</span>
-                    <span class="tag" style="font-size:11px;background:rgba(59,130,246,0.1);color:#2563eb">🎂 ${ageDisplay}</span>
-                  </div>
-                  ${contact ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px">📧 ${escapeHtml(contact)}</div>` : ''}
-                </div>
-                <div style="text-align:right">
-                  <div style="font-size:14px;font-weight:700;color:#f59e0b">⭐ ${f.rating} / 5</div>
-                  <div style="font-size:11px;color:var(--text-muted)">${formatDateTime(f.created_at)}</div>
-                </div>
-              </div>
-
-              <div style="background:var(--bg-input);padding:10px 12px;border-radius:6px;font-size:13px;line-height:1.5;margin-bottom:8px;color:var(--text-primary)">
-                ${escapeHtml(f.content || '(Không có nhận xét chi tiết)')}
-              </div>
-
-              <div style="display:flex;justify-content:space-between;align-items:center;padding-top:6px;border-top:1px dashed var(--border);flex-wrap:wrap;gap:8px">
-                <div>
-                  ${isReplied
-          ? `<span class="badge badge-replied">✅ Đã phản hồi CSKH</span>`
-          : `<span class="badge badge-pending" style="background:rgba(239,68,68,0.15);color:#ef4444">⚠️ Chờ xử lý</span>`
-        }
-                </div>
-                <div>
-                  ${isReplied ? `
-                    <div style="font-size:12px;color:var(--text-secondary);font-style:italic">
-                      💬 "${escapeHtml(f.reply_content || '')}"
-                    </div>
-                  ` : `
-                    <button class="btn btn-primary btn-sm" onclick="closeModal(); navigate('manager-feedbacks');">
-                      💬 Đến mục Phản hồi & Đánh giá để trả lời ngay
-                    </button>
-                  `}
-                </div>
-              </div>
-            </div>
-          `;
-    }).join('')}
-      </div>
-    `;
-    document.querySelector('.modal-body').innerHTML = html;
-  } catch (e) {
-    document.querySelector('.modal-body').innerHTML = `<div style="color:var(--rose-500);padding:20px">${escapeHtml(e.message)}</div>`;
+    const res=await api('GET',`/api/manager/products/${productId}/feedbacks`);
+    if(requestVersion!==modalRequestVersion)return;
+    document.getElementById('modal-body').innerHTML=`<p>Nhấp vào một feedback để xem nội dung và trả lời.</p>`+compactTable(['ID','Khách hàng','Số sao','Trạng thái','Ngày gửi'],(res.feedbacks || []).map(f=>`<tr ${detailRow('openManagerFeedbackDetail',f.id)}><td>#${f.id}</td><td>${escapeHtml(f.full_name)}</td><td>${f.rating}/5 ★</td><td>${feedbackBadge(f.status)}</td><td>${formatDateTime(f.created_at)}</td></tr>`).join(''));
+  } catch(error) {
+    if(requestVersion===modalRequestVersion)document.getElementById('modal-body').innerHTML=`<p role="alert">${escapeHtml(error.message)}</p>`;
   }
 }
 
@@ -1203,8 +1133,9 @@ async function fetchAndRenderCustomers(filters) {
       </div>
 
       <div class="table-wrapper">
-        <table>
-          <thead><tr><th>ID khách hàng</th><th>Khách hàng</th><th>Liên hệ</th><th>Trạng thái</th><th>Ngày tạo</th><th>Thao tác</th>          </tr></thead>
+        <table class="customer-management-table">
+          <colgroup><col><col><col><col><col><col class="customer-actions-column"></colgroup>
+          <thead><tr><th>ID khách hàng</th><th>Khách hàng</th><th>Liên hệ</th><th>Trạng thái</th><th>Ngày tạo</th><th class="customer-actions-cell">Thao tác</th>          </tr></thead>
           <tbody id="customers-tbody"></tbody>
         </table>
       </div>
@@ -1224,7 +1155,7 @@ function renderCustomerTablePage(page=1) {
   tbody.innerHTML=rows.slice((managerCustomerPage-1)*MANAGER_CUSTOMER_PAGE_SIZE,managerCustomerPage*MANAGER_CUSTOMER_PAGE_SIZE).map(c=>`<tr ${detailRow('openCustomerDetail',c.id)} data-skin="${escapeHtml(c.skin_type || '')}" data-interest="${escapeHtml(c.beauty_preferences || '')}">
     <td>#${c.customer_id || '—'}</td><td><div class="customer-name"><div class="customer-avatar">${escapeHtml((c.full_name || 'U').charAt(0))}</div>${escapeHtml(c.full_name)}</div></td>
     <td>${escapeHtml(c.email || c.phone || '—')}</td><td>${statusBadge(c.status)}</td><td>${formatDate(c.created_at)}</td>
-    <td class="row-actions" onclick="event.stopPropagation()"><button class="btn btn-secondary btn-sm" onclick="openEditCustomerModalById(${c.id})">Sửa</button><button class="btn btn-warning btn-sm" onclick="toggleCustomerStatus(${c.id},'${c.status==='ACTIVE'?'LOCKED':'ACTIVE'}',currentCustomersList.find(c=>c.id===${c.id}).full_name)">${c.status==='ACTIVE'?'Khóa':'Mở khóa'}</button>${Number(c.feedback_count)+Number(c.survey_count)===0?`<button class="btn btn-trash btn-sm" onclick="deleteCustomer(${c.id},currentCustomersList.find(c=>c.id===${c.id}).full_name,0)">Xóa</button>`:''}</td></tr>`).join('') || '<tr><td colspan="6" class="empty-cell">Không tìm thấy khách hàng</td></tr>';
+    <td class="row-actions customer-actions-cell" onclick="event.stopPropagation()"><div class="customer-row-actions"><button class="btn btn-secondary btn-sm" onclick="openEditCustomerModalById(${c.id})">Sửa</button>${Number(c.feedback_count)+Number(c.survey_count)===0?`<button class="btn btn-trash btn-sm" onclick="deleteCustomer(${c.id},currentCustomersList.find(c=>c.id===${c.id}).full_name,0)">Xóa</button>`:''}</div></td></tr>`).join('') || '<tr><td colspan="6" class="empty-cell">Không tìm thấy khách hàng</td></tr>';
   document.getElementById('customers-pagination').innerHTML=renderPaginationBar({totalItems:rows.length,pageSize:MANAGER_CUSTOMER_PAGE_SIZE,currentPage:managerCustomerPage,onPageChangeFnName:'renderCustomerTablePage'});
 }
 
@@ -1345,7 +1276,7 @@ function openEditCustomerModal(c) {
       <div style="background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.3);border-radius:var(--radius-md);padding:10px 14px;margin-bottom:16px;display:flex;align-items:flex-start;gap:10px;font-size:12px;color:#93c5fd;line-height:1.5">
         <span style="font-size:18px;line-height:1">ℹ️</span>
         <div>
-          <strong>Khách hàng này đã có ${fbCount} đánh giá sản phẩm và ${svCount} phản hồi khảo sát trong hệ thống CRM.</strong>
+          <strong>Khách hàng này đã có ${fbCount} đánh giá sản phẩm và ${svCount} lượt trả lời khảo sát trong hệ thống CRM.</strong>
         </div>
       </div>
     ` : ''}
@@ -1515,11 +1446,9 @@ function renderManagerSurveysPage(page=1) {
   managerSurveyPage=Math.max(1,Math.min(page,Math.ceil(rows.length/MANAGER_SURVEY_PAGE_SIZE)||1));
   const el=document.getElementById('manager-survey-list'); if(!el)return;
   el.innerHTML=compactTable(['ID','Tên chiến dịch','Trạng thái','Bắt đầu','Kết thúc','Lượt tham gia','Thao tác'],rows.slice((managerSurveyPage-1)*MANAGER_SURVEY_PAGE_SIZE,managerSurveyPage*MANAGER_SURVEY_PAGE_SIZE).map(s=>`<tr ${detailRow('openManagerSurveyDetail',s.id)}><td>#${s.id}</td><td>${escapeHtml(s.title)}</td><td>${surveyStatusBadge(s.status)}</td><td>${formatDate(s.start_date)}</td><td>${formatDate(s.end_date)}</td><td>${Number(s.response_count)||0}</td><td class="row-actions" onclick="event.stopPropagation()">
-    ${Number(s.response_count)===0?`<button class="btn btn-secondary btn-sm" onclick="openEditSurveyModal(${s.id})">Sửa</button>`:''}
+    <button class="btn btn-secondary btn-sm" onclick="openEditSurveyModal(${s.id})">Sửa</button>
     <button class="btn btn-secondary btn-sm" onclick="viewSurveyResults(${s.id},currentManagerSurveysList.find(s=>s.id===${s.id}).title)">Kết quả</button>
-    <button class="btn btn-secondary btn-sm" onclick="manageSurveyRecipients(${s.id},currentManagerSurveysList.find(s=>s.id===${s.id}).title)">Người nhận</button>
     ${s.status==='DRAFT'?`<button class="btn btn-primary btn-sm" onclick="sendSurvey(${s.id},currentManagerSurveysList.find(s=>s.id===${s.id}).title)" ${Number(s.recipient_count)===0?'disabled':''}>Gửi</button>`:''}
-    ${s.status==='ACTIVE'?`<button class="btn btn-warning btn-sm" onclick="updateSurveyStatus(${s.id},'CLOSED')">Đóng</button>`:''}
     <button class="btn btn-trash btn-sm" onclick="deleteSurvey(${s.id},currentManagerSurveysList.find(s=>s.id===${s.id}).title)">Xóa</button></td></tr>`).join(''));
   document.getElementById('manager-survey-pagination').innerHTML=renderPaginationBar({totalItems:rows.length,pageSize:MANAGER_SURVEY_PAGE_SIZE,currentPage:managerSurveyPage,onPageChangeFnName:'renderManagerSurveysPage'});
 }
@@ -1528,6 +1457,7 @@ let editQuestionCount = 0;
 
 async function openEditSurveyModal(id) {
   showModal('✏️ Sửa chiến dịch khảo sát', '<div class="loading-spinner"><div class="spinner"></div></div>', true);
+  const requestVersion=modalRequestVersion;
   const modalEl = document.getElementById('modal');
   if (modalEl) modalEl.style.maxWidth = '850px';
 
@@ -1538,6 +1468,23 @@ async function openEditSurveyModal(id) {
       api('GET', '/api/manager/customers?status=ACTIVE').catch(() => []),
       api('GET', '/api/admin/suppliers').catch(() => [])
     ]);
+    if (requestVersion!==modalRequestVersion) return;
+
+    if (Number(survey.response_count)>0) {
+      const recipients=await api('GET',`/api/manager/surveys/${id}/recipients`);
+      if (requestVersion!==modalRequestVersion) return;
+      document.getElementById('modal-body').innerHTML=`
+        <p>Khảo sát đã có ${Number(survey.response_count)} lượt trả lời. Nội dung và người nhận được giữ cố định; bạn có thể đổi trạng thái chiến dịch.</p>
+        ${detailFields([['Chiến dịch',survey.title],['Mô tả',survey.description],['Bắt đầu',formatDate(survey.start_date)],['Kết thúc',formatDate(survey.end_date)],['Sản phẩm',products.filter(p=>(survey.target_product_ids || []).map(Number).includes(Number(p.id))).map(p=>p.name).join(', ')]])}
+        <div class="form-group"><label for="esv-status">Trạng thái chiến dịch</label><select id="esv-status">
+          ${['DRAFT','ACTIVE','CLOSED'].map(status=>`<option value="${status}" ${survey.status===status?'selected':''}>${({DRAFT:'Bản nháp',ACTIVE:'Đang mở',CLOSED:'Đã đóng'})[status]}</option>`).join('')}
+        </select></div>
+        <h4>Người nhận (chỉ xem)</h4>
+        ${detailFields(recipients.filter(r=>Number(r.is_recipient)===1).map(r=>[r.full_name,Number(r.already_submitted)===1?'Đã hoàn thành':'Chưa hoàn thành']))}
+        <h4>Câu hỏi (chỉ xem)</h4>${detailFields((survey.questions || []).map((q,i)=>[`Câu ${i+1}`,q.question_text]))}
+        <div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="closeModal()">Hủy</button><button type="button" class="btn btn-primary" onclick="updateSurveyStatus(${Number(id)},document.getElementById('esv-status').value)">Lưu trạng thái</button></div>`;
+      return;
+    }
 
     editingSurveyVersion=survey.record_version;
     const targetProductIds = new Set((survey.target_product_ids || []).map(Number));
@@ -1606,9 +1553,6 @@ async function openEditSurveyModal(id) {
             <div style="display:flex;align-items:center;justify-content:space-between;gap:4px">
               <strong style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary)" title="${escapeHtml(c.full_name)}">${escapeHtml(c.full_name)}</strong>
               <span style="color:var(--text-muted);font-size:11px;white-space:nowrap">@${escapeHtml(c.username)}</span>
-            </div>
-            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-              ${c.email ? `📧 ${escapeHtml(c.email)}` : ''}${c.phone ? ` • 📞 ${escapeHtml(c.phone)}` : ''}
             </div>
             <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">
               <span class="badge" style="background:rgba(45,106,79,0.12);color:var(--green-700);font-size:10px;padding:1px 6px;font-weight:600">
@@ -1681,7 +1625,7 @@ async function openEditSurveyModal(id) {
 
         <!-- THANH BỘ LỌC KHÁCH HÀNG (ĐỒNG BỘ STYLE QUẢN LÝ KHÁCH HÀNG) -->
         <div class="filter-bar modal-filter-bar">
-          <input type="text" id="esv-recipient-search" placeholder="🔍 Tên, email, số điện thoại..." oninput="filterSurveyRecipients('esv')">
+          <input type="text" id="esv-recipient-search" placeholder="🔍 Tên hoặc tài khoản..." oninput="filterSurveyRecipients('esv')">
           <select id="esv-recipient-skin" onchange="filterSurveyRecipients('esv')">
             <option value="">Tất cả loại da</option>
             <option value="Da dầu">Da dầu</option>
@@ -1747,7 +1691,7 @@ async function openEditSurveyModal(id) {
       addEditSurveyQuestion();
     }
   } catch (e) {
-    document.getElementById('modal-body').innerHTML = `<p class="error-msg">${escapeHtml(e.message)}</p>`;
+    if(requestVersion===modalRequestVersion) document.getElementById('modal-body').innerHTML = `<p class="error-msg">${escapeHtml(e.message)}</p>`;
   }
 }
 
@@ -1882,11 +1826,17 @@ async function deleteSurvey(id, title) {
 
 
 async function openCreateSurveyModal() {
-  const [products, customers, suppliers] = await Promise.all([
+  const requestVersion=modalRequestVersion, requestedPage=state.currentPage;
+  const [products, customers, suppliers, templates] = await Promise.all([
     api('GET', '/api/products').catch(() => []),
     api('GET', '/api/manager/customers?status=ACTIVE').catch(() => []),
-    api('GET', '/api/admin/suppliers').catch(() => [])
+    api('GET', '/api/admin/suppliers').catch(() => []),
+    api('GET', '/api/manager/question-templates').catch(error=>{toast(`Không tải được bộ câu hỏi mẫu: ${error.message}`,'error');return [];})
   ]);
+
+  if(requestVersion!==modalRequestVersion || requestedPage!==state.currentPage)return;
+  savedQuestionTemplates=templates;
+  questionCount=0;
 
   // Đẩy sản phẩm "Đang bán" lên đầu
   const sortedProducts = [...products].sort((a, b) => {
@@ -1950,9 +1900,6 @@ async function openCreateSurveyModal() {
             <strong style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary)" title="${escapeHtml(c.full_name)}">${escapeHtml(c.full_name)}</strong>
             <span style="color:var(--text-muted);font-size:11px;white-space:nowrap">@${escapeHtml(c.username)}</span>
           </div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-            ${c.email ? `📧 ${escapeHtml(c.email)}` : ''}${c.phone ? ` • 📞 ${escapeHtml(c.phone)}` : ''}
-          </div>
           <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">
             <span class="badge" style="background:rgba(45,106,79,0.12);color:var(--green-700);font-size:10px;padding:1px 6px;font-weight:600">
               🧴 ${escapeHtml(skinText)}
@@ -2002,7 +1949,7 @@ async function openCreateSurveyModal() {
 
       <!-- THANH BỘ LỌC KHÁCH HÀNG (ĐỒNG BỘ STYLE QUẢN LÝ KHÁCH HÀNG) -->
       <div class="filter-bar modal-filter-bar">
-        <input type="text" id="sv-recipient-search" placeholder="🔍 Tên, email, số điện thoại..." oninput="filterSurveyRecipients('sv')">
+        <input type="text" id="sv-recipient-search" placeholder="🔍 Tên hoặc tài khoản..." oninput="filterSurveyRecipients('sv')">
         <select id="sv-recipient-skin" onchange="filterSurveyRecipients('sv')">
           <option value="">Tất cả loại da</option>
           <option value="Da dầu">Da dầu</option>
@@ -2053,6 +2000,11 @@ async function openCreateSurveyModal() {
           <button type="button" class="btn btn-outline-purple btn-sm" onclick="applySurveyTemplate('SERVICE_EXP')">🛍️ Mẫu Trải nghiệm dịch vụ</button>
           <button type="button" class="btn btn-secondary btn-sm" onclick="addSurveyQuestion()">➕ Thêm câu hỏi</button>
         </div>
+      </div>
+      <div class="question-template-tools">
+        <div class="question-template-picker"><label for="sv-question-template">Bộ câu hỏi đã lưu</label><select id="sv-question-template">${questionTemplateOptions()}</select><button type="button" class="btn btn-secondary btn-sm" onclick="loadSavedQuestionTemplate()">Dùng bộ mẫu</button></div>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('sv-template-save-panel').hidden=false;document.getElementById('sv-template-name').focus()">Lưu danh sách thành bộ mẫu</button>
+        <div id="sv-template-save-panel" class="question-template-save" hidden><label for="sv-template-name">Tên bộ câu hỏi</label><input id="sv-template-name" maxlength="100" placeholder="Ví dụ: Khảo sát dưỡng da"><button type="button" class="btn btn-primary btn-sm" onclick="saveQuestionTemplate()">Lưu bộ mẫu</button><span id="sv-template-message" role="status"></span></div>
       </div>
       <div id="questions-container" style="display:flex;flex-direction:column;gap:12px"></div>
     </div>
@@ -2233,6 +2185,45 @@ function filterSurveyRecipientsBySegment(val, prefix = 'sv') {
   updateSurveyRecipientCount(prefix);
 }
 
+let savedQuestionTemplates=[];
+function questionTemplateOptions(selectedId='') {
+  return '<option value="">Chọn bộ mẫu đã lưu</option>'+savedQuestionTemplates.map(t=>`<option value="${Number(t.id)}" ${Number(selectedId)===Number(t.id)?'selected':''}>${escapeHtml(t.name)} (${t.questions.length} câu)</option>`).join('');
+}
+function collectCreateSurveyQuestions() {
+  return [...document.querySelectorAll('#questions-container [id^="q-block-"]')].map(block=>{
+    const n=block.id.replace('q-block-','');
+    const question_type=document.getElementById(`q-type-${n}`).value;
+    return {question_text:document.getElementById(`q-text-${n}`).value.trim(),question_type,
+      options:['SINGLE_CHOICE','MULTI_CHOICE'].includes(question_type)?document.getElementById(`q-options-${n}`).value.split(',').map(o=>o.trim()):null,
+      is_required:document.getElementById(`q-req-${n}`).checked};
+  });
+}
+async function saveQuestionTemplate() {
+  const requestVersion=modalRequestVersion;
+  const message=document.getElementById('sv-template-message');
+  try {
+    const template=await api('POST','/api/manager/question-templates',{name:document.getElementById('sv-template-name').value.trim(),questions:collectCreateSurveyQuestions()});
+    if(requestVersion!==modalRequestVersion)return;
+    savedQuestionTemplates.unshift(template);
+    document.getElementById('sv-question-template').innerHTML=questionTemplateOptions(template.id);
+    message.textContent='Đã lưu bộ mẫu. Các câu hỏi hiện tại được giữ nguyên.';
+    message.className='';
+    toast('Đã lưu bộ câu hỏi mẫu.','success');
+  } catch(error) {
+    if(requestVersion!==modalRequestVersion)return;
+    message.textContent=error.message;message.className='filter-error';
+  }
+}
+function loadSavedQuestionTemplate() {
+  const id=Number(document.getElementById('sv-question-template').value);
+  const template=savedQuestionTemplates.find(t=>Number(t.id)===id);
+  if(!template){toast('Vui lòng chọn bộ câu hỏi mẫu.','error');return;}
+  const hasDraft=collectCreateSurveyQuestions().some(q=>q.question_text || q.options?.some(Boolean));
+  if(hasDraft && !confirm('Thay danh sách câu hỏi hiện tại bằng bộ mẫu đã chọn?'))return;
+  document.getElementById('questions-container').innerHTML='';questionCount=0;
+  template.questions.forEach(q=>addSurveyQuestionWithData(q.question_text,q.question_type,(q.options || []).join(', '),q.is_required));
+  toast(`Đã nạp bộ mẫu: ${template.name}`,'success');
+}
 function applySurveyTemplate(type) {
   const container = document.getElementById('questions-container');
   if (!container) return;
@@ -2377,6 +2368,7 @@ async function updateSurveyStatus(id, status) {
   try {
     await api('PUT', `/api/manager/surveys/${id}/status`, { status });
     toast(`Đã cập nhật trạng thái khảo sát`, 'success');
+    closeModal();
     renderManagerSurveys();
   } catch (e) { toast(e.message, 'error'); }
 }
@@ -2493,11 +2485,13 @@ async function sendSurveyReminder(surveyId, customerId = null, remindAll = false
 
 async function viewSurveyResults(id, title) {
   showModal(`📊 Kết quả: ${title}`, `<div class="loading-spinner"><div class="spinner"></div></div>`, true);
+  const requestVersion=modalRequestVersion;
   const modalEl = document.getElementById('modal');
   if (modalEl) modalEl.style.maxWidth = '900px';
 
   try {
     const data = await api('GET', `/api/manager/surveys/${id}/results`);
+    if(requestVersion!==modalRequestVersion)return;
     currentSurveyResultData = data;
     activeSurveyResultTab = 'questions';
 
@@ -2519,7 +2513,7 @@ async function viewSurveyResults(id, title) {
         <div class="survey-chip-item">
           <div class="survey-chip-icon" style="background:rgba(16,185,129,0.12);color:#059669">✅</div>
           <div>
-            <div class="survey-chip-label">Đã phản hồi</div>
+            <div class="survey-chip-label">Đã trả lời</div>
             <div class="survey-chip-val">${stats.respondents_count} <small style="font-size:11px;font-weight:600;color:#059669">(${stats.response_rate}%)</small></div>
           </div>
         </div>
@@ -2566,7 +2560,7 @@ async function viewSurveyResults(id, title) {
           📊 Thống kê câu hỏi (${results.length})
         </button>
         <button class="modal-tab-btn" id="stb-respondents" onclick="switchSurveyResultTab('respondents')">
-          👤 Khách hàng đã phản hồi (${respondents.length})
+          👤 Khách hàng đã trả lời (${respondents.length})
         </button>
         <button class="modal-tab-btn" id="stb-recipients" onclick="switchSurveyResultTab('recipients')">
           📩 Theo dõi người nhận (${recipients.length})
@@ -2581,6 +2575,7 @@ async function viewSurveyResults(id, title) {
     document.getElementById('modal-body').innerHTML = body;
     renderSurveyResultTabContent();
   } catch (e) {
+    if(requestVersion!==modalRequestVersion)return;
     document.getElementById('modal-body').innerHTML = `<p class="error-msg">${e.message}</p>`;
   }
 }
@@ -2605,7 +2600,7 @@ function renderSurveyResultTabContent() {
         <div style="background:var(--bg-card-solid);border:1px solid var(--border);border-radius:12px;padding:16px">
           <div style="font-size:13.5px;font-weight:700;margin-bottom:12px;color:var(--text-primary);line-height:1.4">
             ${escapeHtml(qTitle)}
-            <span style="color:var(--text-muted);font-weight:400;font-size:11px">&nbsp;(${r.total_responses} phản hồi)</span>
+            <span style="color:var(--text-muted);font-weight:400;font-size:11px">&nbsp;(${r.total_responses} feedback)</span>
           </div>
       `;
 
@@ -2744,7 +2739,7 @@ function renderSurveyResultTabContent() {
     return;
   }
 
-  // TAB 2: KHÁCH HÀNG ĐÃ PHẢN HỒI
+  // TAB 2: KHÁCH HÀNG ĐÃ TRẢ LỜI
   if (activeSurveyResultTab === 'respondents') {
     if (respondents.length === 0) {
       container.innerHTML = `
@@ -2947,7 +2942,7 @@ function navigateToReplyFeedbacks(options = {}) {
 
 async function renderManagerFeedbacks() {
   const requestedPage=state.currentPage;
-  setPageHeader('💬 Phản hồi & Đánh giá', 'Tiếp nhận và phản hồi đánh giá từ khách hàng');
+  setPageHeader('💬 Feedback', 'Tiếp nhận và trả lời feedback của khách hàng');
 
   if (pendingFeedbackFilter) {
     managerFeedbackTab = pendingFeedbackFilter.tab || 'ALL';
@@ -3007,7 +3002,7 @@ function renderManagerFeedbacksLayout() {
     <!-- Card Toolbar & Quick Filter Pills -->
     <div class="card" style="margin-bottom:18px;padding:16px 20px">
       <div class="table-card-header">
-        <div class="card-title">💬 Quản lý phản hồi khách hàng</div>
+        <div class="card-title">💬 Quản lý feedback khách hàng</div>
 
         <div class="table-toolbar-right">
           <input type="text" id="fb-search" placeholder="🔍 ID, khách hàng, sản phẩm..."
@@ -3027,8 +3022,8 @@ function renderManagerFeedbacksLayout() {
 
           <select id="fb-status" onchange="handleFeedbackStatusChange(this.value)">
             <option value="" ${managerFeedbackStatusFilter === '' ? 'selected' : ''}>Tất cả trạng thái</option>
-            <option value="PENDING" ${managerFeedbackStatusFilter === 'PENDING' ? 'selected' : ''}>⏳ Chờ phản hồi</option>
-            <option value="REPLIED" ${managerFeedbackStatusFilter === 'REPLIED' ? 'selected' : ''}>✅ Đã phản hồi</option>
+            <option value="PENDING" ${managerFeedbackStatusFilter === 'PENDING' ? 'selected' : ''}>⏳ Chờ trả lời</option>
+            <option value="REPLIED" ${managerFeedbackStatusFilter === 'REPLIED' ? 'selected' : ''}>✅ Đã trả lời</option>
           </select>
 
           <button class="btn btn-secondary btn-sm" onclick="resetManagerFeedbackFilters()" title="Xóa tất cả điều kiện lọc">
@@ -3206,7 +3201,7 @@ function renderFeedbackListPage(page=1) {
   const list=currentManagerFeedbacksList;
   managerFeedbackPage=Math.max(1,Math.min(page,Math.ceil(list.length/MANAGER_FEEDBACK_PAGE_SIZE)||1));
   const container=document.getElementById('feedback-list-container'); if(!container)return;
-  container.innerHTML=compactTable(['ID','Sản phẩm','Khách hàng','Số sao','Trạng thái','Thời gian','Thao tác'],list.slice((managerFeedbackPage-1)*MANAGER_FEEDBACK_PAGE_SIZE,managerFeedbackPage*MANAGER_FEEDBACK_PAGE_SIZE).map(f=>`<tr ${detailRow('openManagerFeedbackDetail',f.id)}><td>#${f.id}</td><td>${escapeHtml(f.product_name)}</td><td>${escapeHtml(f.customer_name)}</td><td>${f.rating}/5 ★</td><td>${feedbackBadge(f.status)}</td><td>${formatDateTime(f.created_at)}</td><td class="row-actions" onclick="event.stopPropagation()"><button class="btn btn-secondary btn-sm" onclick="openManagerFeedbackDetail(${f.id})">${f.status==='PENDING'?'Phản hồi':'Sửa phản hồi'}</button></td></tr>`).join(''));
+  container.innerHTML=compactTable(['ID','Sản phẩm','Khách hàng','Số sao','Trạng thái','Thời gian','Thao tác'],list.slice((managerFeedbackPage-1)*MANAGER_FEEDBACK_PAGE_SIZE,managerFeedbackPage*MANAGER_FEEDBACK_PAGE_SIZE).map(f=>`<tr ${detailRow('openManagerFeedbackDetail',f.id)}><td>#${f.id}</td><td>${escapeHtml(f.product_name)}</td><td>${escapeHtml(f.customer_name)}</td><td>${f.rating}/5 ★</td><td>${feedbackBadge(f.status)}</td><td>${formatDateTime(f.created_at)}</td><td class="row-actions" onclick="event.stopPropagation()"><button class="btn btn-secondary btn-sm" onclick="openManagerFeedbackDetail(${f.id})">${f.status==='PENDING'?'Feedback':'Sửa trả lời feedback'}</button></td></tr>`).join(''));
   document.getElementById('feedback-pagination').innerHTML=renderPaginationBar({totalItems:list.length,pageSize:MANAGER_FEEDBACK_PAGE_SIZE,currentPage:managerFeedbackPage,onPageChangeFnName:'renderFeedbackListPage'});
   document.getElementById('fb-summary-text').textContent=`Hiển thị ${list.length} / ${allManagerFeedbacks.length} đánh giá`;
 }
@@ -3218,10 +3213,10 @@ function filterFeedbacks() {
 async function replyFeedback(id) {
   const requestVersion=modalRequestVersion;
   const content = document.getElementById(`reply-${id}`)?.value.trim();
-  if (!content) { toast('Vui lòng nhập nội dung phản hồi', 'error'); return; }
+  if (!content) { toast('Vui lòng nhập nội dung trả lời feedback', 'error'); return; }
   try {
     await api('PUT', `/api/manager/feedbacks/${id}/reply`, { reply_content: content, expected_reply_content: document.getElementById(`reply-${id}`).dataset.previous || null });
-    toast('Đã gửi phản hồi thành công!', 'success');
+    toast('Đã gửi trả lời feedback thành công!', 'success');
     const feedbacks = await api('GET', '/api/manager/feedbacks');
     allManagerFeedbacks = feedbacks || [];
     updateFeedbackPillCounts();

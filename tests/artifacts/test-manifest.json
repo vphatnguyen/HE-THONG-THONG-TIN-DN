@@ -1,5 +1,5 @@
 {
-  "date": "2026-10-27T19:45:44.174Z",
+  "date": "2026-10-28T04:54:07.077Z",
   "base": "http://localhost:3101",
   "database": "CosmeticsCRM_Refactor_E2E_DB",
   "suites": [
@@ -84,6 +84,15 @@
       "status": "PASS",
       "exitCode": 0,
       "log": "admin-ui.log"
+    },
+    {
+      "name": "ui-price",
+      "args": [
+        "tests/product-price-ui.js"
+      ],
+      "status": "PASS",
+      "exitCode": 0,
+      "log": "price-ui.log"
     }
   ]
 }

@@ -249,7 +249,7 @@ function buildSidebar() {
       { id: 'manager-products', icon: '💄', label: 'Quản lý Sản phẩm' },
       { id: 'manager-suppliers', icon: '🏪', label: 'Nhà cung cấp' },
       { id: 'manager-surveys', icon: '📋', label: 'Chiến dịch Khảo sát' },
-      { id: 'manager-feedbacks', icon: '💬', label: 'Phản hồi & Đánh giá' },
+      { id: 'manager-feedbacks', icon: '💬', label: 'Feedback' },
     ],
     CUSTOMER: [
       { label: 'PHÂN HỆ KHÁCH HÀNG', type: 'section' },

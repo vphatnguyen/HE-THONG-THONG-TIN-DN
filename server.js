@@ -31,18 +31,8 @@ function validationError(message) {
   return error;
 }
 
-function normalizeSurveyPayload(payload, { allowStatus = false } = {}) {
-  const title = String(payload.title || '').trim();
-  if (!title) throw validationError('Tiêu đề khảo sát là bắt buộc');
-  if (title.length > 200) throw validationError('Tiêu đề khảo sát không được vượt quá 200 ký tự');
-
-  const productIds = Array.isArray(payload.target_product_ids) ? payload.target_product_ids.map(Number) : [];
-  if (!productIds.length || productIds.some(id => !Number.isInteger(id) || id <= 0)) {
-    throw validationError('Vui lòng chọn ít nhất một sản phẩm hợp lệ cho chiến dịch khảo sát');
-  }
-  if (new Set(productIds).size !== productIds.length) throw validationError('Danh sách sản phẩm không được trùng lặp');
-
-  const questions = Array.isArray(payload.questions) ? payload.questions : [];
+function normalizeSurveyQuestions(questions) {
+  if (!Array.isArray(questions)) throw validationError('Danh sách câu hỏi không hợp lệ');
   if (!questions.length) throw validationError('Khảo sát phải có ít nhất một câu hỏi');
   const normalizedQuestions = questions.map((question, index) => {
     const questionText = String(question?.question_text || '').trim();
@@ -67,6 +57,22 @@ function normalizeSurveyPayload(payload, { allowStatus = false } = {}) {
   });
   const questionKeys = normalizedQuestions.map(question => question.question_text.toLocaleLowerCase('vi'));
   if (new Set(questionKeys).size !== questionKeys.length) throw validationError('Nội dung câu hỏi không được trùng lặp');
+
+  return normalizedQuestions;
+}
+
+function normalizeSurveyPayload(payload, { allowStatus = false } = {}) {
+  const title = String(payload.title || '').trim();
+  if (!title) throw validationError('Tiêu đề khảo sát là bắt buộc');
+  if (title.length > 200) throw validationError('Tiêu đề khảo sát không được vượt quá 200 ký tự');
+
+  const productIds = Array.isArray(payload.target_product_ids) ? payload.target_product_ids.map(Number) : [];
+  if (!productIds.length || productIds.some(id => !Number.isInteger(id) || id <= 0)) {
+    throw validationError('Vui lòng chọn ít nhất một sản phẩm hợp lệ cho chiến dịch khảo sát');
+  }
+  if (new Set(productIds).size !== productIds.length) throw validationError('Danh sách sản phẩm không được trùng lặp');
+
+  const normalizedQuestions = normalizeSurveyQuestions(payload.questions);
 
   const startDate = payload.start_date || null;
   const endDate = payload.end_date || null;
@@ -229,6 +235,7 @@ function ensureDb() {
 async function ensureAppSchema() {
   const fs = require('fs');
   await db.prepare(fs.readFileSync(path.join(__dirname, 'database/migrations/20261028_crm_integrity.sql'), 'utf8')).run();
+  await db.prepare(fs.readFileSync(path.join(__dirname, 'database/migrations/20261028_question_templates.sql'), 'utf8')).run();
   await db.prepare(`
     IF OBJECT_ID('dbo.SurveyRecipients', 'U') IS NULL
     CREATE TABLE dbo.SurveyRecipients (
@@ -1222,7 +1229,7 @@ app.get('/api/manager/analytics/export', authMiddleware, requireRole('MANAGER'),
     } else if (type === 'surveys') {
       if (from) { where += ' AND s.created_at >= ?'; params.push(from); }
       if (to) { where += ' AND CAST(s.created_at AS DATE) <= ?'; params.push(to); }
-      headers = ['Tiêu đề', 'Trạng thái', 'Số người nhận', 'Số phản hồi', 'Ngày tạo'];
+      headers = ['Tiêu đề', 'Trạng thái', 'Số người nhận', 'Số feedback', 'Ngày tạo'];
       rows = await db.prepare(`SELECT s.title, s.status, (SELECT COUNT(*) FROM SurveyRecipients r WHERE r.survey_id=s.id) AS recipients, (SELECT COUNT(*) FROM SurveyResults sr WHERE sr.survey_id=s.id) AS responses, s.created_at FROM Surveys s WHERE 1=1${where} ORDER BY s.created_at DESC`).all(...params);
     } else {
       return res.status(400).json({ error: 'Loại báo cáo không hợp lệ' });
@@ -1391,6 +1398,26 @@ app.delete('/api/manager/customers/:accountId', authMiddleware, requireRole('MAN
   }
 });
 
+// Templates store copies of validated questions and never link to a live survey.
+app.get('/api/manager/question-templates', authMiddleware, requireRole('MANAGER'), async(req,res)=>{
+  try {
+    const rows=await db.prepare('SELECT id,name,questions_json,created_at FROM SurveyQuestionTemplates WHERE created_by=? ORDER BY created_at DESC,id DESC').all(req.user.id);
+    res.json(rows.map(({questions_json,...row})=>({...row,questions:JSON.parse(questions_json).map(q=>({...q,is_required:Boolean(q.is_required)}))})));
+  } catch(error) { sendKnownError(res,error); }
+});
+app.post('/api/manager/question-templates', authMiddleware, requireRole('MANAGER'), async(req,res)=>{
+  try {
+    const name=String(req.body?.name || '').trim();
+    if (!name || name.length>100) throw validationError('Tên bộ mẫu phải có từ 1 đến 100 ký tự.');
+    const questions=normalizeSurveyQuestions(req.body?.questions).map(q=>({...q,is_required:Boolean(q.is_required)}));
+    const created=await db.prepare('INSERT INTO SurveyQuestionTemplates (name,questions_json,created_by) VALUES (?,?,?)').run(name,JSON.stringify(questions),req.user.id);
+    res.status(201).json({id:created.lastInsertRowid,name,questions});
+  } catch(error) {
+    if(isUniqueConstraintError(error))return res.status(409).json({error:'Tên bộ mẫu đã tồn tại. Vui lòng chọn tên khác.'});
+    sendKnownError(res,error);
+  }
+});
+
 // ========== MANAGER: Surveys ==========
 app.get('/api/manager/surveys', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
@@ -1414,7 +1441,7 @@ app.get('/api/manager/surveys', authMiddleware, requireRole('MANAGER'), async (r
 app.get('/api/manager/surveys/:id', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
     const surveyId = Number(req.params.id);
-    const survey = await db.prepare('SELECT * FROM Surveys WHERE id = ?').get(surveyId);
+    const survey = await db.prepare('SELECT s.*, (SELECT COUNT(*) FROM SurveyResults sr WHERE sr.survey_id=s.id) AS response_count FROM Surveys s WHERE s.id = ?').get(surveyId);
     if (!survey) return res.status(404).json({ error: 'Không tìm thấy khảo sát' });
     const questions = await db.prepare('SELECT * FROM Questions WHERE survey_id = ? ORDER BY order_index').all(surveyId);
     questions.forEach(q => {
@@ -1469,7 +1496,7 @@ app.put('/api/manager/surveys/:id', authMiddleware, requireRole('MANAGER'), asyn
     if (!existing) return res.status(404).json({ error: 'Không tìm thấy khảo sát' });
     const responseCount = await tx.prepare('SELECT COUNT(*) AS count FROM SurveyResults WHERE survey_id = ?').get(surveyId);
     if (Number(responseCount?.count) > 0) {
-      const error = new Error('Không thể chỉnh sửa cấu trúc khảo sát đã có phản hồi. Bạn vẫn có thể đóng khảo sát bằng nút trạng thái.');
+      const error = new Error('Không thể chỉnh sửa cấu trúc khảo sát đã có câu trả lời. Bạn vẫn có thể đổi trạng thái trong form sửa khảo sát.');
       error.status = 409;
       throw error;
     }
@@ -1569,7 +1596,7 @@ app.put('/api/manager/surveys/:id/recipients', authMiddleware, requireRole('MANA
     }
     const responseCount = await tx.prepare('SELECT COUNT(*) AS count FROM SurveyResults WHERE survey_id = ?').get(req.params.id);
     if (Number(responseCount?.count) > 0) {
-      return res.status(409).json({ error: 'Không thể thay đổi người nhận sau khi khảo sát đã có phản hồi' });
+      return res.status(409).json({ error: 'Không thể thay đổi người nhận sau khi khảo sát đã có câu trả lời' });
     }
     if (ids.length) {
       const placeholders = ids.map(() => '?').join(',');
@@ -1966,18 +1993,18 @@ app.get('/api/manager/feedbacks', authMiddleware, requireRole('MANAGER'), async 
 app.put('/api/manager/feedbacks/:id/reply', authMiddleware, requireRole('MANAGER'), async (req, res) => {
   try {
     const replyContent = String(req.body.reply_content || '').trim();
-    if (!replyContent || replyContent.length > 5000) throw validationError('Phản hồi phải có từ 1 đến 5000 ký tự');
+    if (!replyContent || replyContent.length > 5000) throw validationError('Trả lời feedback phải có từ 1 đến 5000 ký tự');
     await db.transaction(async tx => {
       const existing = await tx.prepare('SELECT id, reply_content, status FROM Feedbacks WITH (UPDLOCK,HOLDLOCK) WHERE id=?').get(req.params.id);
       if (!existing) { const error=new Error('Không tìm thấy đánh giá'); error.status=404; throw error; }
       if (existing.reply_content === replyContent) return; // Retried identical request.
       if (Object.prototype.hasOwnProperty.call(req.body,'expected_reply_content') && (req.body.expected_reply_content || null) !== (existing.reply_content || null)) {
-        const error=new Error('Phản hồi đã được Manager khác cập nhật. Vui lòng mở lại chi tiết.'); error.status=409; throw error;
+        const error=new Error('Trả lời feedback đã được Manager khác cập nhật. Vui lòng mở lại chi tiết.'); error.status=409; throw error;
       }
       await tx.prepare('INSERT INTO FeedbackReplyHistory(feedback_id,manager_id,old_content,new_content) VALUES(?,?,?,?)').run(existing.id,req.user.id,existing.reply_content,replyContent);
       await tx.prepare("UPDATE Feedbacks SET reply_content=?, status='REPLIED', replied_at=GETDATE(), updated_at=GETDATE() WHERE id=?").run(replyContent,existing.id);
     });
-    res.json({ message: 'Đã lưu phản hồi thành công' });
+    res.json({ message: 'Đã lưu trả lời feedback thành công' });
   } catch(error) { sendKnownError(res,error); }
 });
 
@@ -1992,8 +2019,8 @@ app.get('/api/manager/feedbacks/:id', authMiddleware, requireRole('MANAGER'), as
 });
 app.get('/api/customer/feedbacks/:id', authMiddleware, requireRole('CUSTOMER'), async (req,res) => {
   try {
-    const row = await db.prepare(`SELECT f.*, p.name AS product_name, p.category FROM Feedbacks f JOIN Products p ON p.id=f.product_id
-      JOIN Customers c ON c.id=f.customer_id WHERE f.id=? AND c.account_id=?`).get(req.params.id,req.user.id);
+    const row = await db.prepare(`SELECT f.*, p.name AS product_name, p.category, p.price AS product_price, p.description AS product_description, p.launch_status, s.name AS supplier_name FROM Feedbacks f JOIN Products p ON p.id=f.product_id
+      LEFT JOIN Suppliers s ON s.id=p.supplier_id JOIN Customers c ON c.id=f.customer_id WHERE f.id=? AND c.account_id=?`).get(req.params.id,req.user.id);
     if (!row) return res.status(404).json({ error: 'Không tìm thấy đánh giá' });
     row.reply_history = await db.prepare(`SELECT h.id,h.old_content,h.new_content,h.changed_at,a.full_name AS manager_name FROM FeedbackReplyHistory h LEFT JOIN Accounts a ON a.id=h.manager_id WHERE h.feedback_id=? ORDER BY h.id DESC`).all(row.id);
     res.json(row);
@@ -2186,7 +2213,7 @@ app.post('/api/customer/surveys/:id/submit', authMiddleware, requireRole('CUSTOM
     if (!customer) return res.status(400).json({ error: 'Không tìm thấy hồ sơ khách hàng' });
     const survey = await tx.prepare('SELECT id, status, start_date, end_date, CASE WHEN start_date > CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END AS not_started, CASE WHEN end_date < CAST(GETDATE() AS DATE) THEN 1 ELSE 0 END AS expired FROM Surveys WITH (UPDLOCK, HOLDLOCK) WHERE id = ?').get(req.params.id);
     if (!survey) return res.status(404).json({ error: 'Không tìm thấy khảo sát' });
-    if (survey.status !== 'ACTIVE') return res.status(409).json({ error: 'Khảo sát hiện không mở nhận phản hồi' });
+    if (survey.status !== 'ACTIVE') return res.status(409).json({ error: 'Khảo sát hiện không mở nhận câu trả lời' });
     if (survey.not_started) return res.status(400).json({ error: 'Khảo sát chưa đến ngày bắt đầu' });
     if (survey.expired) return res.status(409).json({ error: 'Khảo sát đã hết hạn' });
     const recipient = await tx.prepare('SELECT id FROM SurveyRecipients WHERE survey_id = ? AND customer_id = ?').get(req.params.id, customer.id);
@@ -2332,7 +2359,7 @@ app.put('/api/customer/feedbacks/:id', authMiddleware, requireRole('CUSTOMER'), 
     }
 
     if (existing.status === 'REPLIED') {
-      return res.status(400).json({ error: 'Đánh giá đã được nhân viên chăm sóc khách hàng phản hồi, không thể chỉnh sửa.' });
+      return res.status(400).json({ error: 'Đánh giá đã được nhân viên chăm sóc khách hàng trả lời, không thể chỉnh sửa.' });
     }
 
     const { rating, content } = req.body;

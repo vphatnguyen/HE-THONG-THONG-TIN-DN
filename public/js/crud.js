@@ -117,7 +117,7 @@ function compactTable(headers, rows) {
   return `<div class="table-wrapper"><table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${headers.length}" class="empty-cell">Không có dữ liệu phù hợp.</td></tr>`}</tbody></table></div>`;
 }
 function feedbackBadge(status) {
-  return `<span class="badge ${status === 'REPLIED' ? 'badge-replied':'badge-pending'}">${status === 'REPLIED' ? 'Đã phản hồi':'Chờ phản hồi'}</span>`;
+  return `<span class="badge ${status === 'REPLIED' ? 'badge-replied':'badge-pending'}">${status === 'REPLIED' ? 'Đã trả lời':'Chờ trả lời'}</span>`;
 }
 function customerSurveyStatus(s) {
   return s.submitted_at || Number(s.already_submitted)>0 ? 'COMPLETED' : Number(s.can_participate) === 1 ? 'PENDING' : 'CLOSED';
@@ -146,22 +146,23 @@ function openProductDetail(id){ openAdminRecordDetail('products',id); }
 function openSupplierDetail(id){ openAdminRecordDetail('suppliers',id); }
 
 async function openFeedbackDetail(id, manager = false) {
+  if (!manager) return openCustomerFeedbackPopup(id);
   showModal('Chi tiết đánh giá','Đang tải…',true);
   const requestVersion=modalRequestVersion;
   try {
     const scope=manager ? 'manager':'customer';
     const [f,logs] = await Promise.all([api('GET',`/api/${scope}/feedbacks/${id}`),api('GET',`/api/${scope}/feedbacks/${id}/audit-logs`)]);
     if(requestVersion!==modalRequestVersion)return;
-    const fields=[['ID đánh giá',f.id],['ID sản phẩm',f.product_id],['Sản phẩm',f.product_name],['Danh mục',f.category],['Số sao',`${f.rating}/5`],['Nội dung đánh giá',f.content],['Thời gian đánh giá',formatDateTime(f.created_at)],['Cập nhật gần nhất',formatDateTime(f.updated_at)],['Trạng thái',f.status === 'REPLIED' ? 'Đã phản hồi':'Chờ phản hồi'],['Phản hồi của Manager',f.reply_content],['Thời gian phản hồi',f.replied_at ? formatDateTime(f.replied_at):'Chưa ghi nhận']];
+    const fields=[['ID đánh giá',f.id],['ID sản phẩm',f.product_id],['Sản phẩm',f.product_name],['Danh mục',f.category],['Số sao',`${f.rating}/5`],['Nội dung đánh giá',f.content],['Thời gian đánh giá',formatDateTime(f.created_at)],['Cập nhật gần nhất',formatDateTime(f.updated_at)],['Trạng thái',f.status === 'REPLIED' ? 'Đã trả lời':'Chờ trả lời'],['Trả lời của Manager',f.reply_content],['Thời gian trả lời',f.replied_at ? formatDateTime(f.replied_at):'Chưa ghi nhận']];
     if(manager) fields.splice(4,0,['ID khách hàng',f.customer_id],['Khách hàng',f.customer_name],['Email',f.email],['Điện thoại',f.phone]);
     let actions='';
-    if(manager) actions=`<label for="reply-${f.id}">${f.status === 'PENDING'?'Nội dung phản hồi':'Sửa phản hồi đã gửi'}</label><textarea id="reply-${f.id}" data-previous="${escapeHtml(f.reply_content || '')}" maxlength="5000" placeholder="Nhập phản hồi…">${escapeHtml(f.reply_content || '')}</textarea><button class="btn btn-primary" onclick="replyFeedback(${f.id})">${f.status === 'PENDING'?'Gửi phản hồi':'Lưu phản hồi'}</button>`;
+    if(manager) actions=`<label for="reply-${f.id}">${f.status === 'PENDING'?'Nội dung trả lời feedback':'Sửa trả lời feedback đã gửi'}</label><textarea id="reply-${f.id}" data-previous="${escapeHtml(f.reply_content || '')}" maxlength="5000" placeholder="Nhập trả lời feedback…">${escapeHtml(f.reply_content || '')}</textarea><button class="btn btn-primary" onclick="replyFeedback(${f.id})">${f.status === 'PENDING'?'Gửi trả lời feedback':'Lưu trả lời feedback'}</button>`;
     if(!manager && f.status === 'PENDING') actions=`<button class="btn btn-primary" onclick="editCustomerFeedbackById(${f.id})">Sửa đánh giá</button>`;
-    document.getElementById('modal-body').innerHTML=detailFields(fields)+`<h4>Lịch sử chỉnh sửa đánh giá</h4>`+ (logs.length ? logs.map(l=>detailFields([['Thời gian',formatDateTime(l.changed_at)],['Số sao cũ → mới',`${l.old_rating} → ${l.new_rating}`],['Nội dung cũ',l.old_content],['Nội dung mới',l.new_content]])).join(''):'<p>Chưa có chỉnh sửa.</p>')+`<h4>Lịch sử phản hồi</h4>`+(f.reply_history?.length ? f.reply_history.map(l=>detailFields([['Thời gian',formatDateTime(l.changed_at)],['Manager',l.manager_name],['Nội dung trước',l.old_content],['Nội dung sau',l.new_content]])).join(''):'<p>Chưa ghi nhận lịch sử phản hồi.</p>')+`<div class="detail-actions">${actions}</div><div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Đóng</button></div>`;
+    document.getElementById('modal-body').innerHTML=detailFields(fields)+`<h4>Lịch sử chỉnh sửa đánh giá</h4>`+ (logs.length ? logs.map(l=>detailFields([['Thời gian',formatDateTime(l.changed_at)],['Số sao cũ → mới',`${l.old_rating} → ${l.new_rating}`],['Nội dung cũ',l.old_content],['Nội dung mới',l.new_content]])).join(''):'<p>Chưa có chỉnh sửa.</p>')+`<h4>Lịch sử trả lời feedback</h4>`+(f.reply_history?.length ? f.reply_history.map(l=>detailFields([['Thời gian',formatDateTime(l.changed_at)],['Manager',l.manager_name],['Nội dung trước',l.old_content],['Nội dung sau',l.new_content]])).join(''):'<p>Chưa ghi nhận lịch sử trả lời feedback.</p>')+`<div class="detail-actions">${actions}</div><div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Đóng</button></div>`;
   } catch(error){ if(requestVersion!==modalRequestVersion)return; document.getElementById('modal-body').innerHTML=`<p role="alert">${escapeHtml(error.message)}</p>`; }
 }
 function openManagerFeedbackDetail(id){ return openFeedbackDetail(id,true); }
-function openCustomerFeedbackDetail(id){ return openFeedbackDetail(id,false); }
+function openCustomerFeedbackDetail(id){ return openCustomerFeedbackPopup(id); }
 function editCustomerFeedbackById(id){ const f=allCustomerFeedbacks.find(f=>Number(f.id)===Number(id)); if(f)openEditFeedbackModal(f.id,f.rating,f.content || '',f.product_name); }
 
 async function openSurveyDetail(id, customer = false) {
@@ -177,7 +178,7 @@ async function openSurveyDetail(id, customer = false) {
     else fields.push(['Người tạo',summary.creator_name],['Số người nhận',summary.recipient_count]);
     const answers=new Map((data.answers || []).map(a=>[Number(a.question_id),a.answer_value]));
     const questions=(data.questions || []).map((q,i)=>detailFields([[`Câu ${i+1}`,q.question_text],['Loại',({SINGLE_CHOICE:'Một lựa chọn',MULTI_CHOICE:'Nhiều lựa chọn',RATING:'Thang điểm 1–5',TEXT:'Văn bản'})[q.question_type] || q.question_type],['Bắt buộc',q.is_required?'Có':'Không'],['Lựa chọn',Array.isArray(q.options)?q.options.join(' · '):null],...(customer && data.submission ? [['Câu trả lời đã gửi',readableSurveyAnswer(answers.get(Number(q.id)),q.question_type)]]:[])])).join('');
-    const action=customer ? !data.submission && Number(survey.can_participate)===1 ? `<button class="btn btn-primary" onclick="startSurvey(${Number(id)})">Làm khảo sát</button>`:'' : Number(summary.response_count || 0)===0 ? `<button class="btn btn-primary" onclick="openEditSurveyModal(${Number(id)})">Sửa</button>`:'';
+    const action=customer ? !data.submission && Number(survey.can_participate)===1 ? `<button class="btn btn-primary" onclick="startSurvey(${Number(id)})">Làm khảo sát</button>`:'' : `<button class="btn btn-primary" onclick="openEditSurveyModal(${Number(id)})">Sửa</button>`;
     document.getElementById('modal-body').innerHTML=detailFields(fields)+`<h4>Câu hỏi${data.submission?' và câu trả lời':''}</h4>`+questions+`<div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Đóng</button>${action}</div>`;
   } catch(error){if(requestVersion!==modalRequestVersion)return;document.getElementById('modal-body').innerHTML=`<p role="alert">${escapeHtml(error.message)}</p>`;}
 }

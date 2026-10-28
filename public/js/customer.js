@@ -567,8 +567,8 @@ async function renderCustomerFeedback() {
         </select>
         <select id="cust-fb-status" onchange="handleCustomerFeedbackFilter()" style="min-width:170px">
           <option value="">Tất cả trạng thái</option>
-          <option value="PENDING">⏳ Chờ phản hồi</option>
-          <option value="REPLIED">✅ Đã có phản hồi từ CSKH</option>
+          <option value="PENDING">⏳ Chờ trả lời</option>
+          <option value="REPLIED">✅ Đã được CSKH trả lời</option>
         </select>
         <button type="button" class="btn btn-secondary" onclick="resetCustomerFeedbackFilters()" title="Đặt lại bộ lọc" style="white-space:nowrap">↺ Đặt lại</button>
       </div>
@@ -643,7 +643,7 @@ function openEditFeedbackModal(feedbackId, currentRating, currentContent, produc
   const modalHtml = `
     <div style="background:rgba(244,63,94,0.06);border:1px solid rgba(244,63,94,0.15);border-radius:10px;padding:12px 16px;margin-bottom:14px">
       <div style="font-weight:600;font-size:14px">💄 ${escapeHtml(productName)}</div>
-      <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Bạn có thể tùy ý sửa đánh giá khi chưa có phản hồi từ nhân viên CSKH.</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Bạn có thể tùy ý sửa đánh giá khi chưa được trả lời từ nhân viên CSKH.</div>
     </div>
 
     <div class="form-group">
@@ -788,6 +788,38 @@ const HASAKI_PAGE_SIZE = 5;
 let isWritingReviewOpen = false;
 let hasakiSelectedRating = 5;
 
+async function openCustomerFeedbackPopup(id) {
+  showModal('Đánh giá của bạn','Đang tải…',true);
+  const requestVersion=modalRequestVersion;
+  try {
+    const feedback=await api('GET',`/api/customer/feedbacks/${Number(id)}`);
+    if(requestVersion!==modalRequestVersion)return;
+    document.getElementById('modal-body').innerHTML=`
+      <div class="customer-feedback-popup">
+        <div class="customer-feedback-product">
+          <div class="customer-feedback-icon">${getCategoryIcon(feedback.category)}</div>
+          <div class="customer-feedback-product-info">
+            <div class="customer-feedback-product-badges"><span class="badge">${escapeHtml(feedback.category || 'Mỹ phẩm')}</span>${feedback.supplier_name?`<span class="badge">${escapeHtml(feedback.supplier_name)}</span>`:''}${launchBadge(feedback.launch_status)}</div>
+            <h3>${escapeHtml(feedback.product_name)}</h3>
+            ${feedback.product_price!==null && feedback.product_price!==undefined?`<div class="customer-feedback-price">${formatCurrency(feedback.product_price)}</div>`:''}
+            ${feedback.product_description?`<p>${escapeHtml(feedback.product_description)}</p>`:''}
+          </div>
+        </div>
+        <article class="customer-feedback-own">
+          <h4>Đánh giá của bạn</h4>
+          <div class="customer-feedback-author"><strong>${escapeHtml(state.user?.full_name || 'Bạn')}</strong><span class="badge">Bạn</span></div>
+          <div class="customer-feedback-rating"><span class="hasaki-star-badge">${Number(feedback.rating)}★</span><span>${getHasakiRatingLabel(feedback.rating)}</span><time>${formatDate(feedback.created_at)}</time></div>
+          <p class="customer-feedback-content">${escapeHtml(feedback.content || '(Bạn chưa để lại nhận xét bằng chữ)')}</p>
+          ${feedback.reply_content?`<section class="hasaki-cskh-box"><div class="customer-feedback-reply-title"><span class="hasaki-cskh-tag">Hasaki</span><strong>Chăm sóc khách hàng</strong>${feedback.replied_at?`<time>${formatDate(feedback.replied_at)}</time>`:''}</div><p class="customer-feedback-reply">${escapeHtml(feedback.reply_content)}</p></section>`:'<p class="customer-feedback-pending">Đánh giá của bạn đang chờ Manager trả lời.</p>'}
+        </article>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="closeModal()">Đóng</button>${feedback.status==='PENDING'?`<button type="button" class="btn btn-primary" onclick="editCustomerFeedbackById(${Number(feedback.id)})">Sửa đánh giá</button>`:''}</div>`;
+  } catch(error) {
+    if(requestVersion!==modalRequestVersion)return;
+    document.getElementById('modal-body').innerHTML=`<p role="alert">${escapeHtml(error.message)}</p>`;
+  }
+}
+
 function getHasakiRatingLabel(r) {
   const map = {
     5: 'Rất hài lòng',
@@ -864,7 +896,7 @@ function renderHasakiModalContent() {
   // 1. CTA Button HTML
   let ctaBtnHtml = '';
   if (myFb?.status === 'REPLIED') {
-    ctaBtnHtml = `<span class="badge badge-replied">Đánh giá đã được phản hồi</span>`;
+    ctaBtnHtml = `<span class="badge badge-replied">Đánh giá đã được trả lời</span>`;
   } else if (!isOfficial) {
     ctaBtnHtml = `<span class="badge badge-locked" style="padding:7px 14px;font-size:12px;font-weight:700">🚫 Đã đóng nhận đánh giá mới</span>`;
   } else if (myFb) {
@@ -881,7 +913,7 @@ function renderHasakiModalContent() {
     { key: '3', label: `3 ★ (${stats.count_3 || 0})` },
     { key: '2', label: `2 ★ (${stats.count_2 || 0})` },
     { key: '1', label: `1 ★ (${stats.count_1 || 0})` },
-    { key: 'REPLIED', label: `Có phản hồi CSKH (${stats.replied_count || 0})` }
+    { key: 'REPLIED', label: `Được CSKH trả lời (${stats.replied_count || 0})` }
   ];
 
   const pillsHtml = pills.map(item => `
@@ -1088,7 +1120,7 @@ function renderHasakiReviewsList() {
           ${escapeHtml(f.content || '(Khách hàng không để lại nhận xét bằng chữ)')}
         </div>
 
-        <!-- Khối Phản hồi của Hasaki CSKH (Nếu đã được CSKH trả lời) -->
+        <!-- Khối Feedback của Hasaki CSKH (Nếu đã được CSKH trả lời) -->
         ${f.reply_content ? `
           <div class="hasaki-cskh-box">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
@@ -1145,7 +1177,7 @@ function setHasakiPage(page) {
 
 function toggleHasakiWriteSection(isEdit = false) {
   if (currentHasakiMyFeedback?.status === 'REPLIED') {
-    toast('Đánh giá đã được phản hồi, không thể chỉnh sửa.', 'error');
+    toast('Đánh giá đã được trả lời, không thể chỉnh sửa.', 'error');
     return;
   }
   isWritingReviewOpen = !isWritingReviewOpen;

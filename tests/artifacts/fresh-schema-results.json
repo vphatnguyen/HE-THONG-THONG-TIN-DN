@@ -1,5 +1,5 @@
 {
-  "database": "CosmeticsCRM_Lean_E2E_DB",
+  "database": "CosmeticsCRM_Templates_E2E_DB",
   "status": "PASS",
   "products": 10,
   "customers": 10,
@@ -7,6 +7,7 @@
     "schema initializes successfully",
     "product API without inventory",
     "customer API without tiers or average",
-    "customer metadata retained"
+    "customer metadata retained",
+    "question templates schema and API ready"
   ]
 }

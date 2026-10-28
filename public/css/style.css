@@ -2550,6 +2550,12 @@ tbody tr.row-clickable:hover {
 .row-actions { text-align:right; white-space:nowrap; }
 .row-actions .btn { margin:2px; }
 .customer-name { display:flex; align-items:center; gap:10px; }
+.customer-management-table { min-width:820px; }
+.customer-actions-column { width:180px; }
+.customer-management-table .customer-actions-cell { position:sticky; right:0; width:180px; min-width:180px; background:var(--bg-card-solid,#fff); box-shadow:-1px 0 var(--border); }
+.customer-management-table th.customer-actions-cell { z-index:2; }
+.customer-row-actions { display:grid; grid-template-columns:68px 68px; justify-content:end; gap:8px; }
+.customer-row-actions .btn { width:68px; margin:0; }
 .record-details { margin:0 0 20px; }
 .record-details > div { display:grid; grid-template-columns:minmax(120px, 34%) 1fr; gap:12px; padding:10px 0; border-bottom:1px solid var(--border); }
 .record-details dt { color:var(--text-secondary); font-weight:600; }
@@ -2570,6 +2576,29 @@ tbody tr.row-clickable:hover {
 .detail-actions textarea { width:100%; min-height:100px; }
 .preference-options { display:grid; gap:8px; }
 .preference-options label { display:flex; align-items:center; gap:6px; font-size:13px; }
+.question-template-tools { display:grid; gap:10px; margin-bottom:16px; padding:12px; border:1px solid var(--border); border-radius:10px; }
+.question-template-picker, .question-template-save { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.question-template-picker select, .question-template-save input { flex:1; min-width:160px; }
+.question-template-save[hidden] { display:none; }
+.question-template-save [role=status] { flex-basis:100%; font-size:12px; }
+.customer-feedback-popup { overflow-wrap:anywhere; }
+.customer-feedback-product { display:flex; align-items:flex-start; gap:18px; padding-bottom:20px; border-bottom:1px solid var(--border); }
+.customer-feedback-icon { width:88px; height:88px; display:grid; place-items:center; flex-shrink:0; font-size:42px; border:1px solid var(--border); border-radius:12px; background:linear-gradient(135deg,#f9edf1,#f3efff); }
+.customer-feedback-product-info { flex:1; min-width:0; }
+.customer-feedback-product-info h3 { margin:7px 0; font-size:19px; }
+.customer-feedback-product-info p { font-size:13px; line-height:1.6; }
+.customer-feedback-product-badges, .customer-feedback-author, .customer-feedback-rating, .customer-feedback-reply-title { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.customer-feedback-price { color:#df6636; font-weight:800; font-size:20px; margin-bottom:8px; }
+.customer-feedback-own { padding:20px 0 8px; }
+.customer-feedback-own h4 { margin-bottom:18px; }
+.customer-feedback-author { margin-bottom:8px; }
+.customer-feedback-rating { font-size:13px; }
+.customer-feedback-rating time, .customer-feedback-reply-title time { color:var(--text-muted); font-size:12px; }
+.customer-feedback-content, .customer-feedback-reply { white-space:pre-wrap; line-height:1.65; font-size:14px; margin:12px 0 0; }
+.customer-feedback-own .hasaki-cskh-box { margin-left:0; margin-top:18px; }
+.customer-feedback-reply-title { font-size:13px; }
+.customer-feedback-pending { font-size:13px; color:var(--text-secondary); margin-top:18px; }
+@media(max-width:480px) { .customer-feedback-product { gap:12px; } .customer-feedback-icon { width:60px; height:60px; font-size:32px; } .question-template-picker > *, .question-template-save > * { max-width:100%; } }
 th:last-child { text-align:right; }
 @media(max-width:600px) {
   .record-details > div { grid-template-columns:1fr; gap:4px; }

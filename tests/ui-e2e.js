@@ -133,7 +133,7 @@ async function run() {
 
   await test('UI-03', 'Trang Phân tích CRM sau khi chuyển biểu đồ', 'Không còn 2 biểu đồ sở thích; bảng sản phẩm và khảo sát vẫn có', async () => {
     await page.locator('#nav-manager-analytics').click();
-    await page.getByText('Xếp hạng & Phân tích sản phẩm theo phản hồi').waitFor();
+    await page.getByText('Xếp hạng & Phân tích sản phẩm theo feedback').waitFor();
     const preferenceCanvases = await page.locator('#chart-pref-age, #chart-pref-skin').count();
     expect(preferenceCanvases === 0, `Còn ${preferenceCanvases} canvas sở thích`);
     expect(await page.locator('#analytics-products-tbody').count() === 1 && await page.locator('#analytics-surveys-tbody').count() === 1, 'Thiếu bảng phân tích');

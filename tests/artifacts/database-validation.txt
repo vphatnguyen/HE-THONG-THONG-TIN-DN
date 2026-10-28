@@ -1,4 +1,10 @@
-DBCC execution completed. If DBCC printed error messages, contact your system administrator.
-test_database                                                                                                                    tier_column stock_column profile_created_at
--------------------------------------------------------------------------------------------------------------------------------- ----------- ------------ ------------------
-CosmeticsCRM_Refactor_E2E_DB                                                                                                            NULL         NULL                  8
+DBCC CHECKCONSTRAINTS: PASS, 0 violations
+[
+  {
+    "test_database": "CosmeticsCRM_Refactor_E2E_DB",
+    "tier_column": null,
+    "stock_column": null,
+    "profile_created_at": 8,
+    "question_templates_table": 1298103665
+  }
+]

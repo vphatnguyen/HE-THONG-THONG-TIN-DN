@@ -1,6 +1,6 @@
 # Báo cáo refactor UI/UX, CRUD và kiểm thử CRM
 
-Ngày: 28/10/2026, UTC+7. **154/154 ca PASS, 9/9 bộ kiểm thử PASS; thêm 6 kiểm tra migration và 4 kiểm tra schema mới PASS** trong lần hồi quy cuối. Chi tiết kết quả thực chạy ở báo cáo B và JSON đính kèm.
+Ngày: 28/10/2026, UTC+7. **174/174 ca PASS, 10/10 bộ kiểm thử PASS; thêm 6 kiểm tra migration và 5 kiểm tra schema mới PASS** trong lần hồi quy cuối. Chi tiết kết quả thực chạy ở báo cáo B và JSON đính kèm.
 
 **Chưa đóng toàn bộ yêu cầu:** quy tắc xóa chiến dịch đã có kết quả còn chờ quyết định. Không triển khai production, không thử xóa trên database chính.
 
@@ -21,7 +21,7 @@ Ngày: 28/10/2026, UTC+7. **154/154 ca PASS, 9/9 bộ kiểm thử PASS; thêm 6
 | Customer Management – hồ sơ | Sửa mất các sở thích ngoài mục đầu tiên; bỏ trường có thể xóa dữ liệu cũ | Checkbox nhiều sở thích; giữ trường không gửi; transaction account/profile; ID bất biến; kiểm tra version khi lưu | Đã kiểm thử |
 | Feedback Management | Nội dung và ô phản hồi nằm trong danh sách; ghi đè thiếu lịch sử | Bảng 7 cột; detail đầy đủ; sửa phản hồi theo quyết định người dùng; audit nội dung trước/sau, Manager và timestamp; chống retry trùng/bản sửa cũ | Đã kiểm thử |
 | Survey Campaign | Thẻ dài hiển thị sản phẩm; thiếu tìm/lọc; nhấp đúp sửa | Bảng ID/tên/trạng thái/bắt đầu/kết thúc/lượt tham gia/thao tác; sản phẩm/câu hỏi ở detail; tìm ID/tên, trạng thái/ngày bắt đầu, sort, phân trang | Đã kiểm thử; chính sách xóa có kết quả còn chờ |
-| Customer Feedback | Nội dung dài trên thẻ, chưa có detail riêng | Bảng 6 cột; detail theo chủ sở hữu, audit và phản hồi; sửa khi PENDING; lọc sao/trạng thái/ngày và tìm ID | Đã kiểm thử |
+| Customer Feedback | Nội dung dài trên thẻ, chưa có detail riêng | Bảng 6 cột; popup theo chủ sở hữu, đánh giá và trả lời Manager; ẩn ID/audit/lịch sử quản trị; sửa khi PENDING; lọc sao/trạng thái/ngày và tìm ID | Đã kiểm thử |
 | Customer Survey | Bài đóng/hết hạn biến mất; không đọc lại câu trả lời | Bảng 6 cột; hạn, trạng thái tham gia, thời gian hoàn thành; detail câu hỏi và câu trả lời cá nhân; giữ lịch sử, khóa nộp lại | Đã kiểm thử |
 | Accounts nội bộ | Nhấp đúp sửa; chưa xử lý sửa đồng thời/Admin ACTIVE cuối | Ẩn ID tài khoản ở bảng/detail/sort; click đọc detail; sửa riêng; ngày/sort; version; bảo vệ Admin ACTIVE cuối; giữ xem mật khẩu theo lựa chọn người dùng | Đã kiểm thử |
 | Products | Thiếu click hàng đọc detail; xóa gỡ liên kết khảo sát | Detail đầy đủ; bỏ mô tả dài khỏi bảng; nút không lan click; giữ liên kết và ngừng bán khi có feedback/khảo sát; validate giá/NCC | Đã kiểm thử |
@@ -80,8 +80,38 @@ Không chạy migration mới và không sửa dữ liệu thật cho các yêu 
 - Nhập 150 được hiểu là 150.000đ; rời ô hiển thị dạng tiền, bấm vào sửa trở lại 150. Không nhân nghìn lặp lại.
 - Theo yêu cầu cuối, không thêm nút Lọc giá. Khoảng giá tự lọc sau khi ngừng nhập 300 ms; vẫn kết hợp tìm kiếm, trạng thái và sắp xếp.
 - Chặn số âm, chữ, số vượt phạm vi và giá từ lớn hơn giá đến; giữ điều kiện hợp lệ trước đó. Xóa ô/Reset bỏ giới hạn giá.
-- Kiểm thử riêng sau chỉnh sửa: **5/5 ca PRICE PASS**, giao diện desktop và 375px; chỉ đọc API trên DB E2E. Lần này không chạy lại toàn bộ 154 ca.
+- Kiểm thử riêng sau chỉnh sửa: **5/5 ca PRICE PASS**, giao diện desktop và 375px; chỉ đọc API trên DB E2E. Đã đưa 5 ca UI giá vào test:all; lần hồi quy mới nhất chạy 174 ca của 10 bộ kiểm thử, đều PASS.
 - [Kết quả](tests/artifacts/product-price-results.json), [desktop](tests/artifacts/product-price-filter.png), [mobile](tests/artifacts/product-price-mobile.png). Chạy lại: DB_DATABASE=CosmeticsCRM_Refactor_E2E_DB và E2E_BASE_URL=http://localhost:3101, rồi node tests/product-price-ui.js.
+
+### Tinh gọn thao tác Manager và thống nhất tên Feedback
+
+| Khu vực | Kết quả |
+|---|---|
+| Chiến dịch khảo sát | Bỏ nút Người nhận và Đóng ở bảng. Form Sửa chứa người nhận/trạng thái. Khảo sát có câu trả lời vẫn mở Sửa để đổi trạng thái, nhưng chỉ xem nội dung/người nhận; giữ nguyên khóa nghiệp vụ backend |
+| Khách hàng | Cột thao tác rộng cố định, sticky bên phải; nút Sửa và Xóa nằm ở hai vị trí cố định. Ẩn nút Khóa/Mở khóa ngoài bảng; dùng Trạng thái trong form sửa |
+| Phân tích sản phẩm | Bỏ nút/cột Xem người đánh giá; click hoặc Enter trên dòng mở danh sách feedback, click feedback mở detail và trả lời; badge lọc riêng không lan click lên dòng |
+| Phân tích khảo sát | Bỏ nút/cột Chi tiết; click hoặc Enter trên dòng mở kết quả khảo sát |
+| Tên gọi | Dùng Feedback cho nội dung khách gửi, Trả lời feedback cho nội dung Manager gửi lại. Rà soát UI Manager/Customer, thông báo API và hướng dẫn; giữ mã trạng thái/API/DB |
+| Dữ liệu | Chi tiết API khảo sát bổ sung response_count để form biết trạng thái được sửa. Không migration mới; không sửa dữ liệu thật |
+
+Ca UX29–UX33 đã kiểm tra click/bàn phím, ID feedback đúng, lưu người nhận/trạng thái và bảo toàn câu hỏi/kết quả cũ. [Ảnh cột thao tác](tests/artifacts/manager-customer-actions.png), [ảnh phân tích](tests/artifacts/analytics-desktop.png).
+
+### Bộ câu hỏi mẫu, người nhận và popup Customer
+
+| Yêu cầu | Kết quả |
+|---|---|
+| Lưu bộ mẫu | Trong Tạo chiến dịch: soạn câu hỏi → Lưu danh sách thành bộ mẫu → nhập tên → Lưu bộ mẫu. Mẫu lưu DB theo tài khoản Manager và dùng lại ở phiên/thiết bị khác |
+| Nạp mẫu | Chọn bộ mẫu đã lưu → Dùng bộ mẫu. Giữ thứ tự, 4 loại câu hỏi, lựa chọn và dấu bắt buộc. Cần xác nhận trước khi thay câu hỏi đang soạn; chiến dịch nhận bản sao độc lập |
+| Validation | Tên 1–100 ký tự, không trùng trong cùng tài khoản; kiểm tra câu hỏi, lựa chọn, nội dung trùng; unique constraint chống tạo trùng đồng thời. Lỗi lưu giữ nguyên form |
+| Người nhận | Ẩn dòng email/số điện thoại ở thẻ chọn người nhận trong cả tạo và sửa. Giữ tên, tài khoản, phân nhóm và các thao tác chọn/lọc |
+| Popup feedback Customer | Tách khỏi màn hình Manager: biểu tượng/sản phẩm, sao/ngày/nội dung của chính khách, reply Manager mới nhất. Không ID, audit hay lịch sử quản trị; PENDING vẫn sửa được, REPLIED chỉ đọc |
+| Quyền và dữ liệu | GET/POST /api/manager/question-templates chỉ dành cho Manager và phạm vi chủ sở hữu. Mẫu không gắn khóa ngoại với chiến dịch. Chi tiết feedback vẫn lọc theo khách đang đăng nhập |
+
+[Migration bổ sung](database/migrations/20261028_question_templates.sql) tạo bảng SurveyQuestionTemplates nếu chưa có, không xóa dữ liệu; chạy từ ensureAppSchema theo DB cấu hình khi khởi động. Đã áp dụng/thử chạy lại trên DB test và thử bootstrap schema mới; chưa chạy trên DB chính. Mẫu riêng được xóa theo tài khoản chủ sở hữu nếu tài khoản bị xóa.
+
+Kiểm thử mới CRM58–CRM63 và UX34–UX37 bao gồm DB lưu/đọc lại, phân quyền, tên trùng/gửi đồng thời, giữ mẫu khi sửa chiến dịch, nạp sau đăng nhập lại, lỗi API giữ form, ẩn liên hệ và popup 375px.
+
+[Ảnh bộ câu hỏi mẫu](tests/artifacts/question-template-create.png), [popup Customer](tests/artifacts/customer-feedback-popup.png), [popup mobile](tests/artifacts/customer-feedback-mobile.png).
 
 ## Báo cáo B – Kiểm thử chức năng
 
@@ -89,15 +119,16 @@ Không chạy migration mới và không sửa dữ liệu thật cho các yêu 
 |---|---|---|
 | Unit | 18/18 ca | PASS |
 | API/DB cũ | 43/43 ca | PASS |
-| API/DB mở rộng | 57/57 ca | PASS |
+| API/DB mở rộng | 63/63 ca | PASS |
 | UI cũ | 8/8 ca | PASS |
-| UI CRM mở rộng | 28/28 ca | PASS |
+| UI CRM mở rộng | 37/37 ca | PASS |
+| UI giá | 5/5 ca (nằm trong tổng 174) | PASS |
 | lean-schema | Script exit 0; 6 kiểm tra migration | PASS |
 | pagination-filters | Script exit 0 | PASS |
 | admin-api | Script exit 0 | PASS |
 | admin-ui | Script exit 0 | PASS |
 
-154 ca không đếm thêm 6 kiểm tra migration và 4 kiểm tra smoke trên schema mới. Migration được thử với cột legacy/default/CHECK được tạo lại trong DB test, rồi chạy hai lần; giữ nguyên số bản ghi, ngày tạo hồ sơ và thống kê sao sản phẩm. Database tạo mới CosmeticsCRM_Lean_E2E_DB cũng khởi động và truy cập API thành công. node --check, git diff --check và DBCC CHECKCONSTRAINTS: PASS.
+174 ca (đã gồm 5 ca UI giá) không đếm thêm 6 kiểm tra migration và 5 kiểm tra smoke trên schema mới. Migration được thử với cột legacy/default/CHECK được tạo lại trong DB test, rồi chạy hai lần; giữ nguyên số bản ghi, ngày tạo hồ sơ và thống kê sao sản phẩm. Database tạo mới CosmeticsCRM_Templates_E2E_DB cũng khởi động, khởi tạo bảng mẫu và truy cập API thành công. node --check, git diff --check và DBCC CHECKCONSTRAINTS: PASS.
 
 | Test Case | Thao tác | Kết quả mong đợi | Kết quả thực tế | PASS/FAIL |
 |---|---|---|---|---|
@@ -127,15 +158,15 @@ Không chạy migration mới và không sửa dữ liệu thật cho các yêu 
 | OLD-FB-04 | Sản phẩm không tồn tại | HTTP 404 | HTTP 404 | PASS |
 | OLD-FB-05 | Sản phẩm chưa kinh doanh | HTTP 400 | HTTP 400 | PASS |
 | OLD-FB-06 | Nội dung chỉ chứa khoảng trắng | Chuẩn hóa thành NULL hoặc từ chối 400 | DB content=NULL | PASS |
-| OLD-FB-07 | KPI sau khi thêm đánh giá | Sản phẩm QA: count=1, average=5; phân bố 5★ tăng đúng | count=1; average=5; total=19 | PASS |
+| OLD-FB-07 | KPI sau khi thêm đánh giá | Sản phẩm QA: count=1, average=5; phân bố 5★ tăng đúng | count=1; average=5; total=29 | PASS |
 | OLD-FB-08 | Sản phẩm chưa có đánh giá | API trả count=0, average=null để UI hiển thị “Chưa có đánh giá” | count=0; average=null | PASS |
 | OLD-FB-09 | Nội dung vượt 2000 ký tự | HTTP 400; không lưu DB | HTTP 400; count=0 | PASS |
 | OLD-FB-10 | Hai request đồng thời cho cùng sản phẩm | Một HTTP 201, một HTTP 409; DB chỉ có 1 dòng | statuses=201,409; count=1 | PASS |
 | OLD-FB-11 | Phản hồi rỗng và phản hồi hợp lệ | Rỗng: HTTP 400; hợp lệ: REPLIED và nội dung được trim | HTTP 400 / HTTP 200; status=REPLIED | PASS |
-| OLD-FB-12 | Khách hàng sửa đánh giá khi còn PENDING kèm ghi Audit Log | HTTP 200; cập nhật rating/content và lưu FeedbackAuditLog | HTTP 200; rating 4->5; audit log ID=15 | PASS |
-| OLD-FB-13 | Chặn khách hàng sửa đánh giá khi đã được CSKH phản hồi (REPLIED) | HTTP 400; không cho sửa | HTTP 400: Đánh giá đã được nhân viên chăm sóc khách hàng phản hồi, không thể chỉnh sửa. | PASS |
+| OLD-FB-12 | Khách hàng sửa đánh giá khi còn PENDING kèm ghi Audit Log | HTTP 200; cập nhật rating/content và lưu FeedbackAuditLog | HTTP 200; rating 4->5; audit log ID=25 | PASS |
+| OLD-FB-13 | Chặn khách hàng sửa đánh giá khi đã được CSKH phản hồi (REPLIED) | HTTP 400; không cho sửa | HTTP 400: Đánh giá đã được nhân viên chăm sóc khách hàng trả lời, không thể chỉnh sửa. | PASS |
 | OLD-AUTH-03 | Tài khoản bị khóa đăng nhập | HTTP 403 | HTTP 403 | PASS |
-| OLD-SV-01 | Tạo khảo sát đủ 4 loại câu hỏi | HTTP 201; quan hệ DB chính xác | survey=88; questions=4; recipients=1 | PASS |
+| OLD-SV-01 | Tạo khảo sát đủ 4 loại câu hỏi | HTTP 201; quan hệ DB chính xác | survey=153; questions=4; recipients=1 | PASS |
 | OLD-SV-02 | Tiêu đề chỉ chứa khoảng trắng | HTTP 400; không lưu DB | HTTP 400; count=0 | PASS |
 | OLD-SV-03 | Khảo sát không có câu hỏi | HTTP 400; không lưu DB | HTTP 400; count=0 | PASS |
 | OLD-SV-04 | Câu lựa chọn không có đáp án | HTTP 400; không lưu DB | HTTP 400; count=0 | PASS |
@@ -157,19 +188,23 @@ Không chạy migration mới và không sửa dữ liệu thật cho các yêu 
 | OLD-SV-20 | Nộp khảo sát bỏ qua câu hỏi không bắt buộc (is_required = 0) | HTTP 201; nộp thành công chỉ với câu bắt buộc | HTTP 201; submit thành công khi bỏ qua câu hỏi không bắt buộc | PASS |
 | OLD-SV-21 | Reorder thứ tự câu hỏi qua PUT khảo sát | HTTP 200; thứ tự và order_index cập nhật chuẩn xác | HTTP 200; thứ tự mới: [Câu Thứ Ba -> Câu Thứ Nhất -> Câu Thứ Hai] | PASS |
 | OLD-AN-01 | Bộ lọc thời gian tương lai tác động KPI | Tổng feedback và phản hồi khảo sát bằng 0 | totalFeedbacks=0; totalSurveyResponses=0 | PASS |
-| OLD-AN-02 | Đối chiếu tổng biểu đồ với dữ liệu DB | Tổng tuổi/da/giới tính/phân bố sao khớp truy vấn gốc | customers=26; ages=18; skins=12; genders=18; ratings=21 | PASS |
-| OLD-AN-03 | Xuất CSV đánh giá theo khoảng thời gian | HTTP 200, content-type CSV, có BOM và tiêu đề | HTTP 200; 21 dòng dữ liệu | PASS |
+| OLD-AN-02 | Đối chiếu tổng biểu đồ với dữ liệu DB | Tổng tuổi/da/giới tính/phân bố sao khớp truy vấn gốc | customers=36; ages=23; skins=12; genders=23; ratings=31 | PASS |
+| OLD-AN-03 | Xuất CSV đánh giá theo khoảng thời gian | HTTP 200, content-type CSV, có BOM và tiêu đề | HTTP 200; 31 dòng dữ liệu | PASS |
 | OLD-AN-04 | Khoảng ngày đảo ngược | HTTP 400 với thông báo rõ ràng | HTTP 400: Từ ngày phải bằng hoặc trước đến ngày | PASS |
-| OLD-AN-05 | Lọc chiến dịch theo ngày bắt đầu khảo sát | Danh sách API khớp start_date trong khoảng; không dùng created_at | 24 khảo sát; start_date nằm trong 2026-01-01..2026-12-31 | PASS |
+| OLD-AN-05 | Lọc chiến dịch theo ngày bắt đầu khảo sát | Danh sách API khớp start_date trong khoảng; không dùng created_at | 34 khảo sát; start_date nằm trong 2026-01-01..2026-12-31 | PASS |
 | OLD-AN-06 | Tính median rating, xu hướng theo tháng và phân loại danh mục | stats.medianRating hợp lệ, ratingTrendByMonth và productCategories đầy đủ | medianRating=5; trends=1 months; categories=[Kem chống nắng, Kem dưỡng da, Mặt nạ, Phấn phủ, QA, Serum, Son môi, Sữa rửa mặt, Test, Toner] | PASS |
 | OLD-UI-01 | Đăng nhập Manager và render Dashboard | Dashboard hiển thị các canvas có Chart.js instance (gồm biểu đồ xu hướng mới) | chart-age:doughnut, chart-gender:doughnut, chart-skin:bar, chart-prefs:bar, chart-new-customers:line, chart-ratings:bar, chart-pref-age:bar, chart-pref-skin:bar, chart-rating-trend:line | PASS |
 | OLD-UI-02 | Bộ lọc thời gian Dashboard | Khoảng năm 2099 cập nhật KPI về 0 và biểu đồ vẫn render | URL=http://localhost:3101/api/manager/analytics?from=2099-01-01&to=2099-12-31; Tổng khách hàng=0; 8/8 biểu đồ render lại | PASS |
 | OLD-UI-03 | Trang Phân tích CRM sau khi chuyển biểu đồ | Không còn 2 biểu đồ sở thích; bảng sản phẩm và khảo sát vẫn có | Không trùng biểu đồ; 2 bảng dữ liệu hiện diện | PASS |
-| OLD-UI-04 | Bộ lọc khách hàng khi tạo khảo sát | Lọc đúng loại da/sở thích, giữ lựa chọn và cập nhật bộ đếm | Hiển thị Da dầu=3; Trị mụn=3; tổng đã chọn=27; bộ đếm chính xác | PASS |
+| OLD-UI-04 | Bộ lọc khách hàng khi tạo khảo sát | Lọc đúng loại da/sở thích, giữ lựa chọn và cập nhật bộ đếm | Hiển thị Da dầu=3; Trị mụn=3; tổng đã chọn=37; bộ đếm chính xác | PASS |
 | OLD-UI-05 | Dashboard trên màn hình di động | Không tràn ngang viewport; nội dung/biểu đồ vẫn hiện | {"clientWidth":375,"scrollWidth":375,"charts":9,"overflowing":[],"chain":[{"tag":"DIV","id":"","className":"chart-card","left":16,"right":359,"width":343,"padding":"20px","margin":"0px"},{"tag":"DIV","id":"","className":"charts-grid-3x2","left":16,"right":359,"width":343,"padding":"0px","margin":"0px 0px 24px"},{"tag":"DIV","id":"page-content","className":"page-content","left":0,"right":375,"width":375,"padding":"16px","margin":"0px"},{"tag":"MAIN","id":"main-content","className":"main-content","left":0,"right":375,"width":375,"padding":"0px","margin":"0px"},{"tag":"DIV","id":"app","className":"","left":0,"right":375,"width":375,"padding":"0px","margin":"0px"},{"tag":"BODY","id":"","className":"","left":0,"right":375,"width":375,"padding":"0px","margin":"0px"},{"tag":"HTML","id":"","className":"","left":0,"right":375,"width":375,"padding":"0px","margin":"0px"}]} | PASS |
 | OLD-UI-06 | Gửi đánh giá sản phẩm qua giao diện | Toast thành công, DB lưu đúng và dữ liệu còn sau reload | DB rating=5; nội dung tồn tại sau reload | PASS |
 | OLD-UI-07 | Validation và gửi khảo sát qua giao diện | Bài trống bị chặn; bài hợp lệ lưu 4 đáp án và hiển thị đã hoàn thành | Bài trống: chặn; DB answers=4; UI=Đã hoàn thành | PASS |
 | OLD-UI-08 | Lỗi JavaScript và tài nguyên khi chạy E2E | Không có console error hoặc requestfailed | 0 console errors; 0 request failures | PASS |
+
+
+
+
 
 | CRM01 | Customer gọi API quản trị | 403 | {"error": "Không có quyền truy cập"} | PASS |
 | CRM02 | Không có phiên đăng nhập | 401 | {"error": "Chưa đăng nhập"} | PASS |
@@ -185,7 +220,7 @@ Không chạy migration mới và không sửa dữ liệu thật cho các yêu 
 | CRM12 | Gửi và sửa phản hồi Manager | 200; có timestamp và 2 phiên bản | 200; có timestamp và 2 phiên bản | PASS |
 | CRM13 | Retry phản hồi giống hệt | 200; không nhân đôi audit | 200; không nhân đôi audit | PASS |
 | CRM14 | Sửa phản hồi từ bản cũ | 409; không ghi đè | 409; không ghi đè | PASS |
-| CRM15 | Customer sửa sau phản hồi | 400 | {"error": "Đánh giá đã được nhân viên chăm sóc khách hàng phản hồi, không thể chỉnh sửa."} | PASS |
+| CRM15 | Customer sửa sau phản hồi | 400 | {"error": "Đánh giá đã được nhân viên chăm sóc khách hàng trả lời, không thể chỉnh sửa."} | PASS |
 | CRM16 | Manager tạo chiến dịch và đọc chi tiết | 201; đúng sản phẩm, câu hỏi, người nhận | 201; đúng sản phẩm, câu hỏi, người nhận | PASS |
 | CRM17 | Ngày không tồn tại và cờ bắt buộc sai | 400 | 400 | PASS |
 | CRM18 | Draft không hiển thị với Customer | không có trong list; detail 404 | không có trong list; detail 404 | PASS |
@@ -194,7 +229,7 @@ Không chạy migration mới và không sửa dữ liệu thật cho các yêu 
 | CRM21 | Thiếu câu bắt buộc | 400; không lưu result | {"error": "Câu hỏi \"Bắt buộc\" là bắt buộc, vui lòng trả lời."} | PASS |
 | CRM22 | Gửi khảo sát đồng thời hai lần | 201 + 409; 1 result, 1 answer | 201 + 409; 1 result, 1 answer | PASS |
 | CRM23 | Lịch sử khảo sát trả đúng câu trả lời cá nhân | submission + đáp án 5 | submission + đáp án 5 | PASS |
-| CRM24 | Sửa khảo sát đã có kết quả | 409; cấu trúc giữ nguyên | {"error": "Không thể chỉnh sửa cấu trúc khảo sát đã có phản hồi. Bạn vẫn có thể đóng khảo sát bằng nút trạng thái."} | PASS |
+| CRM24 | Sửa khảo sát đã có kết quả | 409; cấu trúc giữ nguyên | {"error": "Không thể chỉnh sửa cấu trúc khảo sát đã có câu trả lời. Bạn vẫn có thể đổi trạng thái trong form sửa khảo sát."} | PASS |
 | CRM25 | Đóng khảo sát vẫn giữ lịch sử | 200; Customer đọc được kết quả cũ | 200; Customer đọc được kết quả cũ | PASS |
 | CRM26 | Khóa tài khoản vô hiệu token đã cấp | 403 cho đọc/ghi; dữ liệu lịch sử nguyên vẹn | 403 cho đọc/ghi; dữ liệu lịch sử nguyên vẹn | PASS |
 | CRM27 | Xóa khách có lịch sử | khóa; feedback/result không mất | khóa; feedback/result không mất | PASS |
@@ -228,10 +263,16 @@ Không chạy migration mới và không sửa dữ liệu thật cho các yêu 
 | CRM55 | Sản phẩm không còn tồn kho; vẫn có thống kê feedback | API bỏ stock_quantity; điểm sao sản phẩm đúng | API bỏ stock_quantity; điểm sao sản phẩm đúng | PASS |
 | CRM56 | Payload tồn kho cũ không tác động nghiệp vụ | bỏ qua field cũ; tạo/sửa sản phẩm bình thường; sort tồn kho không còn hỗ trợ | bỏ qua field cũ; tạo/sửa sản phẩm bình thường; sort tồn kho không còn hỗ trợ | PASS |
 | CRM57 | Khoảng ngày tính cả đầu ngày và toàn bộ cuối ngày | API danh sách và Dashboard cùng loại trước/sau, nhận 00:00 và 23:59:59.9999999 | API danh sách và Dashboard cùng loại trước/sau, nhận 00:00 và 23:59:59.9999999 | PASS |
+| CRM58 | Lưu bộ mẫu đủ 4 loại câu hỏi | 201; giữ thứ tự, lựa chọn và bắt buộc trong DB/API | 201; giữ thứ tự, lựa chọn và bắt buộc trong DB/API | PASS |
+| CRM59 | Validation bộ mẫu | 400 cho tên/câu hỏi trống, loại sai, lựa chọn thiếu, nội dung trùng; không lưu một phần | 400 cho tên/câu hỏi trống, loại sai, lựa chọn thiếu, nội dung trùng; không lưu một phần | PASS |
+| CRM60 | Tên trùng và gửi đồng thời | 409 khi tên đã có; request đồng thời chỉ một bản ghi | 409 khi tên đã có; request đồng thời chỉ một bản ghi | PASS |
+| CRM61 | Phân quyền và bộ mẫu riêng từng Manager | Customer 403; Manager khác không thấy mẫu; xóa tài khoản dọn mẫu riêng | Customer 403; Manager khác không thấy mẫu; xóa tài khoản dọn mẫu riêng | PASS |
+| CRM62 | Dùng mẫu tạo chiến dịch là bản sao độc lập | sửa/xóa chiến dịch không làm đổi câu hỏi mẫu | sửa/xóa chiến dịch không làm đổi câu hỏi mẫu | PASS |
+| CRM63 | Migration mẫu chạy lại an toàn; chi tiết feedback vẫn đúng chủ sở hữu | giữ mẫu hiện có; Customer khác 404; thông tin sản phẩm thuộc đánh giá chính mình | giữ mẫu hiện có; Customer khác 404; thông tin sản phẩm thuộc đánh giá chính mình | PASS |
 
 | UX01 | Danh sách khách hàng | 6 cột, có ID, không tự mở form sửa | 6 cột, có ID, không tự mở form sửa | PASS |
 | UX02 | Nút sửa không mở chi tiết | mở đúng form sửa | mở đúng form sửa | PASS |
-| UX03 | Nút khóa bị hủy không mở hàng | không modal, không đổi dữ liệu | không modal, không đổi dữ liệu | PASS |
+| UX03 | Ẩn nút khóa ở danh sách khách hàng | khóa và mở khóa nằm trong form sửa | khóa và mở khóa nằm trong form sửa | PASS |
 | UX04 | Điều hướng chi tiết bằng bàn phím | Enter mở chi tiết | Enter mở chi tiết | PASS |
 | UX05 | Lọc ngày + sắp xếp + phân trang khách hàng | ngày đảo báo lỗi, reset phục hồi | ngày đảo báo lỗi, reset phục hồi | PASS |
 | UX06 | Tìm khách hàng theo ID và xóa bộ lọc | đúng một bản ghi | đúng một bản ghi | PASS |
@@ -241,8 +282,8 @@ Không chạy migration mới và không sửa dữ liệu thật cho các yêu 
 | UX24 | Phản hồi tải chi tiết cũ không ghi đè bản ghi vừa mở | giữ đúng ID mới khi request cũ hoàn thành muộn | giữ đúng ID mới khi request cũ hoàn thành muộn | PASS |
 | UX17 | Lỗi API phản hồi giữ nguyên dữ liệu nhập | hiện lỗi, không đóng form, giữ nội dung | hiện lỗi, không đóng form, giữ nội dung | PASS |
 | UX18 | Manager gửi và sửa phản hồi qua UI | đã phản hồi; 2 phiên bản lịch sử | đã phản hồi; 2 phiên bản lịch sử | PASS |
-| UX10 | Đánh giá Customer danh sách/chi tiết | 6 cột; chi tiết đầy đủ | 6 cột; chi tiết đầy đủ | PASS |
-| UX19 | Customer xem phản hồi Manager mới nhất | hiện phản hồi đã sửa; không có nút sửa đánh giá | hiện phản hồi đã sửa; không có nút sửa đánh giá | PASS |
+| UX10 | Đánh giá Customer danh sách/popup | 6 cột; popup gọn, không ID/audit/lịch sử quản trị | 6 cột; popup gọn, không ID/audit/lịch sử quản trị | PASS |
+| UX19 | Customer xem trả lời Manager mới nhất | hiện trả lời đã sửa; không có nút sửa đánh giá | hiện trả lời đã sửa; không có nút sửa đánh giá | PASS |
 | UX11 | Customer xem khảo sát hoàn thành | xem lại câu trả lời, không nút nộp/sửa | xem lại câu trả lời, không nút nộp/sửa | PASS |
 | UX12 | Customer list 375px | cuộn ngang trong bảng, trang không tràn viewport | cuộn ngang trong bảng, trang không tràn viewport | PASS |
 | UX13 | CRUD admin-accounts danh sách/chi tiết | click hàng đọc, nút sửa mở form | click hàng đọc, nút sửa mở form | PASS |
@@ -256,6 +297,15 @@ Không chạy migration mới và không sửa dữ liệu thật cho các yêu 
 | UX26 | Ẩn ID tài khoản ở danh sách, chi tiết và sắp xếp | giữ tên đăng nhập và thao tác CRUD | giữ tên đăng nhập và thao tác CRUD | PASS |
 | UX27 | Dashboard ngày dd/mm/yyyy và ẩn CSV | đổi sang ISO khi gọi API; chặn ngày sai; reset được cả hai ô | đổi sang ISO khi gọi API; chặn ngày sai; reset được cả hai ô | PASS |
 | UX28 | Bỏ bộ lọc và nút đặt lại bị lặp | một bộ sắp xếp sản phẩm; một nút reset mỗi danh sách; không lặp bộ lọc sao | một bộ sắp xếp sản phẩm; một nút reset mỗi danh sách; không lặp bộ lọc sao | PASS |
+| UX29 | Click và Enter ở bảng phân tích sản phẩm → feedback → chi tiết | không nút xem người đánh giá; mở đúng ID feedback và form trả lời | không nút xem người đánh giá; mở đúng ID feedback và form trả lời | PASS |
+| UX30 | Click và Enter ở bảng phân tích khảo sát | không nút Chi tiết; mở kết quả đúng khảo sát | không nút Chi tiết; mở kết quả đúng khảo sát | PASS |
+| UX31 | Sửa trạng thái khảo sát đã có câu trả lời | đóng trong form sửa; giữ nguyên câu hỏi, người nhận và số kết quả | đóng trong form sửa; giữ nguyên câu hỏi, người nhận và số kết quả | PASS |
+| UX32 | Người nhận và đóng khảo sát chưa có kết quả nằm trong form sửa | lưu danh sách người nhận và trạng thái bằng form; không nút riêng ngoài bảng | lưu danh sách người nhận và trạng thái bằng form; không nút riêng ngoài bảng | PASS |
+| UX33 | Cột thao tác khách hàng cố định và nút Sửa thẳng hàng | cùng tọa độ và chiều rộng; không nút khóa; giao diện dùng Feedback | cùng tọa độ và chiều rộng; không nút khóa; giao diện dùng Feedback | PASS |
+| UX34 | Lưu bộ câu hỏi có tên và nạp lại ở phiên mới | giữ 4 loại, thứ tự, lựa chọn/bắt buộc; lưu không làm mất form | giữ 4 loại, thứ tự, lựa chọn/bắt buộc; lưu không làm mất form | PASS |
+| UX35 | Lỗi lưu và hủy thay câu hỏi không mất bản đang soạn | hiện lỗi tại form, giữ tên/câu hỏi; chỉ thay khi xác nhận | hiện lỗi tại form, giữ tên/câu hỏi; chỉ thay khi xác nhận | PASS |
+| UX36 | Ẩn email/số điện thoại trên người nhận cả tạo và sửa | giữ chọn khách, tên, tài khoản và thông tin phân nhóm | giữ chọn khách, tên, tài khoản và thông tin phân nhóm | PASS |
+| UX37 | Popup Customer chỉ hiển thị đánh giá của mình và reply; dùng được ở 375px | không API quản trị/audit; không ID/lịch sử; reply mới và sản phẩm đúng | không API quản trị/audit; không ID/lịch sử; reply mới và sản phẩm đúng | PASS |
 | UX16 | Lỗi JavaScript toàn bộ flow | 0 pageerror | 0 pageerror | PASS |
 
 ### Chưa chạy hoặc chờ quyết định

@@ -20,6 +20,7 @@ GO
 -- ============================================================
 -- XÓA CÁC BẢNG CŨ NẾU TỒN TẠI (theo thứ tự ràng buộc khóa ngoại)
 -- ============================================================
+IF OBJECT_ID('dbo.SurveyQuestionTemplates', 'U') IS NOT NULL DROP TABLE dbo.SurveyQuestionTemplates;
 IF OBJECT_ID('dbo.FeedbackReplyHistory', 'U') IS NOT NULL DROP TABLE dbo.FeedbackReplyHistory;
 IF OBJECT_ID('dbo.SurveyProducts', 'U') IS NOT NULL DROP TABLE dbo.SurveyProducts;
 IF OBJECT_ID('dbo.SurveyRecipients', 'U') IS NOT NULL DROP TABLE dbo.SurveyRecipients;
@@ -58,6 +59,24 @@ GO
 
 CREATE UNIQUE INDEX UX_Accounts_Email_NotNull ON dbo.Accounts(email) WHERE email IS NOT NULL;
 GO
+
+-- Additive and idempotent: question templates belonging to each Manager.
+IF OBJECT_ID('dbo.SurveyQuestionTemplates','U') IS NULL
+BEGIN
+  CREATE TABLE dbo.SurveyQuestionTemplates (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    name NVARCHAR(100) NOT NULL,
+    questions_json NVARCHAR(MAX) NOT NULL,
+    created_by INT NOT NULL,
+    created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
+    CONSTRAINT FK_SurveyQuestionTemplates_Accounts FOREIGN KEY (created_by) REFERENCES dbo.Accounts(id) ON DELETE CASCADE,
+    CONSTRAINT UQ_SurveyQuestionTemplates_OwnerName UNIQUE(created_by,name),
+    CONSTRAINT CK_SurveyQuestionTemplates_Json CHECK(ISJSON(questions_json)=1)
+  );
+END;
+
+GO
+
 
 -- Trigger chặn xóa tài khoản Admin khi chỉ còn duy nhất 1 Admin trong hệ thống
 CREATE OR ALTER TRIGGER dbo.trg_PreventDeleteLastAdmin

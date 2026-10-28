@@ -22,7 +22,8 @@ async function run(){
     assert(customers.length>0);assert(customers.every(c=>!Object.hasOwn(c,'membership_tier')&&!Object.hasOwn(c,'avg_rating')));
     const customer=await request('/api/auth/login',null,{username:'khach001',password:'123456'});
     assert(customer.customer.created_at);assert(!Object.hasOwn(customer.customer,'membership_tier'));
-    fs.writeFileSync('tests/artifacts/fresh-schema-results.json',JSON.stringify({database:process.env.DB_DATABASE,status:'PASS',products:products.length,customers:customers.length,checks:['schema initializes successfully','product API without inventory','customer API without tiers or average','customer metadata retained']},null,2));
+    const templates=await request('/api/manager/question-templates',manager.token);assert(Array.isArray(templates));
+    fs.writeFileSync('tests/artifacts/fresh-schema-results.json',JSON.stringify({database:process.env.DB_DATABASE,status:'PASS',products:products.length,customers:customers.length,checks:['schema initializes successfully','product API without inventory','customer API without tiers or average','customer metadata retained','question templates schema and API ready']},null,2));
     console.log('Fresh schema application smoke: PASS');
   }finally{await new Promise(resolve=>server.close(resolve));await db.close();}
 }

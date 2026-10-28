@@ -197,6 +197,54 @@ async function run(){
       }
     } finally { await query('UPDATE Feedbacks SET created_at=? WHERE id=?',[original,feedback]); }
   });
+  const templateName=prefix+'_template';let templateId;
+  const templateQuestions=[{question_text:'Một lựa chọn',question_type:'SINGLE_CHOICE',options:['A','B'],is_required:true},{question_text:'Nhiều lựa chọn',question_type:'MULTI_CHOICE',options:['C','D'],is_required:false},{question_text:'Chấm điểm',question_type:'RATING',is_required:true},{question_text:'Ý kiến',question_type:'TEXT',is_required:false}];
+  await check('CRM58','Lưu bộ mẫu đủ 4 loại câu hỏi','201; giữ thứ tự, lựa chọn và bắt buộc trong DB/API',async()=>{
+    const row=status(await api('POST','/api/manager/question-templates',manager,{name:' '+templateName+' ',questions:templateQuestions}),201);templateId=row.id;
+    assert.equal(row.name,templateName);assert.equal(row.questions.length,4);
+    const stored=(await query('SELECT name,questions_json FROM SurveyQuestionTemplates WHERE id=?',[templateId]))[0];
+    assert.equal(stored.name,templateName);assert.deepEqual(JSON.parse(stored.questions_json),row.questions);
+    const list=status(await api('GET','/api/manager/question-templates',manager),200);assert.deepEqual(list.find(t=>t.id===templateId).questions,row.questions);
+  });
+  await check('CRM59','Validation bộ mẫu','400 cho tên/câu hỏi trống, loại sai, lựa chọn thiếu, nội dung trùng; không lưu một phần',async()=>{
+    const before=(await query('SELECT COUNT(*) AS count FROM SurveyQuestionTemplates'))[0].count;
+    for(const body of [{name:' ',questions:templateQuestions},{name:'x'.repeat(101),questions:templateQuestions},{name:prefix,questions:[]},{name:prefix,questions:[{question_text:' ',question_type:'TEXT'}]},{name:prefix,questions:[{question_text:'Sai loại',question_type:'INVALID'}]},{name:prefix,questions:[{question_text:'Thiếu lựa chọn',question_type:'SINGLE_CHOICE',options:['A']}]},{name:prefix,questions:[templateQuestions[0],templateQuestions[0]]}])status(await api('POST','/api/manager/question-templates',manager,body),400);
+    assert.equal((await query('SELECT COUNT(*) AS count FROM SurveyQuestionTemplates'))[0].count,before);
+  });
+  await check('CRM60','Tên trùng và gửi đồng thời','409 khi tên đã có; request đồng thời chỉ một bản ghi',async()=>{
+    status(await api('POST','/api/manager/question-templates',manager,{name:templateName,questions:templateQuestions}),409);
+    const name=templateName+'_concurrent';const rows=await Promise.all([1,2].map(()=>api('POST','/api/manager/question-templates',manager,{name,questions:templateQuestions})));
+    assert.deepEqual(rows.map(r=>r.status).sort(),[201,409]);assert.equal((await query('SELECT id FROM SurveyQuestionTemplates WHERE name=?',[name])).length,1);
+  });
+  await check('CRM61','Phân quyền và bộ mẫu riêng từng Manager','Customer 403; Manager khác không thấy mẫu; xóa tài khoản dọn mẫu riêng',async()=>{
+    status(await api('GET','/api/manager/question-templates',customerA),403);status(await api('POST','/api/manager/question-templates',customerA,{name:templateName,questions:templateQuestions}),403);
+    const admin=status(await api('POST','/api/auth/login',null,{username:'admin',password:'admin123'}),200).token;
+    const username=prefix+'_template_owner';const owner=status(await api('POST','/api/admin/accounts',admin,{username,password:'test-pass',full_name:'Template owner',role:'MANAGER'}),201).id;
+    try {
+      const token=status(await api('POST','/api/auth/login',null,{username,password:'test-pass'}),200).token;
+      assert.equal(status(await api('GET','/api/manager/question-templates',token),200).length,0);
+      status(await api('POST','/api/manager/question-templates',token,{name:templateName,questions:templateQuestions}),201);
+      assert(!status(await api('GET','/api/manager/question-templates',token),200).some(t=>t.id===templateId));
+    } finally {status(await api('DELETE',`/api/admin/accounts/${owner}`,admin),200);}
+    assert.equal((await query('SELECT id FROM SurveyQuestionTemplates WHERE created_by=?',[owner])).length,0);
+  });
+  await check('CRM62','Dùng mẫu tạo chiến dịch là bản sao độc lập','sửa/xóa chiến dịch không làm đổi câu hỏi mẫu',async()=>{
+    const before=status(await api('GET','/api/manager/question-templates',manager),200).find(t=>t.id===templateId);
+    const id=status(await api('POST','/api/manager/surveys',manager,{title:prefix+'_from_template',target_product_ids:[product],questions:before.questions,recipient_customer_ids:[]}),201).id;
+    try {
+      const copy=before.questions.map(q=>({...q}));copy[0].question_text='Câu hỏi riêng của chiến dịch';
+      status(await api('PUT',`/api/manager/surveys/${id}`,manager,{title:prefix+'_from_template',target_product_ids:[product],questions:copy,recipient_customer_ids:[]}),200);
+      assert.deepEqual(status(await api('GET','/api/manager/question-templates',manager),200).find(t=>t.id===templateId).questions,before.questions);
+    } finally {status(await api('DELETE',`/api/manager/surveys/${id}`,manager),200);}
+  });
+  await check('CRM63','Migration mẫu chạy lại an toàn; chi tiết feedback vẫn đúng chủ sở hữu','giữ mẫu hiện có; Customer khác 404; thông tin sản phẩm thuộc đánh giá chính mình',async()=>{
+    const ddl=fs.readFileSync('database/migrations/20261028_question_templates.sql','utf8');await query(ddl);await query(ddl);
+    assert((await query('SELECT id FROM SurveyQuestionTemplates WHERE id=?',[templateId])).length===1);
+    const own=status(await api('GET',`/api/customer/feedbacks/${feedback}`,customerA),200);assert.equal(own.product_id,product);assert(own.product_name);assert(Object.hasOwn(own,'product_price'));
+    const other=status(await api('POST','/api/auth/login',null,{username:prefix+'_n2',password:'p'}),200).token;
+    status(await api('GET',`/api/customer/feedbacks/${feedback}`,other),404);
+  });
+  await query('DELETE FROM SurveyQuestionTemplates WHERE created_by=? AND name IN (?,?)',[jwt.decode(manager).id,templateName,templateName+'_concurrent']);
   const file='tests/artifacts/crm-api-results.json';fs.writeFileSync(file,JSON.stringify(results,null,2));
   console.table(results.map(({id,status,scenario,actual})=>({id,status,scenario,actual:typeof actual==='string'?actual:JSON.stringify(actual)})));
   console.log('CRM_SUMMARY='+JSON.stringify({total:results.length,PASS:results.filter(r=>r.status==='PASS').length,FAIL:results.filter(r=>r.status==='FAIL').length}));

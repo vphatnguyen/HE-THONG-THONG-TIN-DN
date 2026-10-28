@@ -85,20 +85,25 @@ IV. HƯỚNG DẪN SỬ DỤNG THEO VÀI TRÒ (PHÂN RÃ CHỨC NĂNG)
 2. Giao diện MANAGER (Quản lý Cửa hàng & CRM):
    - Quản lý Danh mục Sản phẩm & Nhà cung cấp: Tìm kiếm nâng cao, lọc, sắp xếp, thêm mới, chuyển trạng thái Đang bán/Ngừng bán, chỉnh sửa và xóa sản phẩm/nhà cung cấp.
    - Quản lý Khách hàng: Thêm khách hàng mới, khóa/mở khóa tài khoản khách hàng.
-   - Dashboard CRM: Xem tổng khách hàng, tài khoản bị khóa, điểm đánh giá, phản hồi và tỷ lệ tham gia khảo sát.
+   - Quản lý khách hàng: Nhấn Sửa để thay đổi trạng thái hoạt động/khóa tài khoản; các nút thao tác nằm ở cột cố định bên phải.
+   - Phân tích: Nhấp vào dòng sản phẩm để xem danh sách feedback và nhấp feedback để xem chi tiết/trả lời; nhấp dòng khảo sát để xem kết quả.
+   - Dashboard CRM: Xem tổng khách hàng, tài khoản bị khóa, điểm đánh giá, feedback và tỷ lệ tham gia khảo sát.
    - Phân tích CRM: Lọc theo khoảng thời gian, phân tích khách hàng theo độ tuổi/giới tính/loại da, sở thích theo nhóm khách hàng, đánh giá theo sản phẩm và hiệu quả từng chiến dịch khảo sát.
    - Bộ lọc ngày: Nhập dd/mm/yyyy; ngày của bản ghi nằm trong khoảng chọn, tính cả ngày đầu và ngày cuối. Bỏ trống để xem toàn bộ.
    - Dashboard: Khách hàng theo ngày tạo hồ sơ, đánh giá theo ngày gửi, chiến dịch theo ngày bắt đầu, lượt tham gia theo ngày nộp; biểu đồ khách hàng mới theo ngày tạo tài khoản.
    - Khảo sát thị hiếu sản phẩm mới:
      * Tạo bài khảo sát mới kèm các câu hỏi (Trắc nghiệm, Đánh giá sao, Ý kiến).
+     * Lưu câu hỏi mẫu: Soạn câu hỏi -> Lưu danh sách thành bộ mẫu -> đặt tên -> Lưu bộ mẫu. Chọn lại ở Bộ câu hỏi đã lưu -> Dùng bộ mẫu. Mẫu lưu theo tài khoản Manager; sửa chiến dịch không đổi mẫu gốc.
+     * Thẻ người nhận chỉ hiển thị tên/tài khoản và phân nhóm; ẩn email/số điện thoại.
      * Gửi chiến dịch khảo sát tới danh sách khách hàng.
-     * Thống kê kết quả phản hồi của khách hàng đối với dòng sản phẩm mới.
-   - Tiếp nhận Phản hồi: Xem danh sách phản hồi từ khách hàng và gửi câu trả lời trực tiếp.
+     * Thống kê kết quả feedback của khách hàng đối với dòng sản phẩm mới.
+   - Feedback: Xem danh sách feedback từ khách hàng và gửi câu trả lời trực tiếp.
 
 3. Giao diện CUSTOMER (Khách hàng):
    - Đăng ký / Đăng nhập: Đăng ký tài khoản khách hàng mới kèm thông tin độ tuổi, loại da, sở thích mỹ phẩm.
    - Quản lý thông tin cá nhân: Cập nhật thông tin hồ sơ làm đẹp.
-   - Gửi Phản hồi: Đánh giá chất lượng sản phẩm (1-5 sao) và gửi bình luận.
+   - Xem Feedback: Nhấp vào dòng đánh giá để mở popup chỉ gồm sản phẩm, đánh giá của bạn và câu trả lời Manager. Chưa được trả lời có thể sửa; đã được trả lời chỉ xem.
+   - Gửi Feedback: Đánh giá chất lượng sản phẩm (1-5 sao) và gửi bình luận.
    - Làm bài Khảo sát: Nhận các bài khảo sát sản phẩm mới từ cửa hàng và điền ý kiến đánh giá.
 
 ================================================================================

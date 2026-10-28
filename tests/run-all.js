@@ -10,7 +10,8 @@ const suites=[
   ['ui-crm',['tests/crm-ui-regression.js'],'crm-ui.log'],
   ['pagination-filters',['tests/test-pagination-filters.js'],'pagination.log'],
   ['admin-api',['tests/test-admin-hasaki-features.js'],'admin-api.log'],
-  ['admin-ui',['tests/test-ui-admin-hasaki.js'],'admin-ui.log']
+  ['admin-ui',['tests/test-ui-admin-hasaki.js'],'admin-ui.log'],
+  ['ui-price',['tests/product-price-ui.js'],'price-ui.log']
 ];
 async function run(){
   const base=process.env.E2E_BASE_URL || 'http://localhost:3100';

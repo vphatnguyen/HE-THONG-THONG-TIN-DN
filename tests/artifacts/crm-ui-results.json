@@ -15,9 +15,9 @@
   },
   {
     "id": "UX03",
-    "scenario": "Nút khóa bị hủy không mở hàng",
-    "expected": "không modal, không đổi dữ liệu",
-    "actual": "không modal, không đổi dữ liệu",
+    "scenario": "Ẩn nút khóa ở danh sách khách hàng",
+    "expected": "khóa và mở khóa nằm trong form sửa",
+    "actual": "khóa và mở khóa nằm trong form sửa",
     "status": "PASS"
   },
   {
@@ -85,16 +85,16 @@
   },
   {
     "id": "UX10",
-    "scenario": "Đánh giá Customer danh sách/chi tiết",
-    "expected": "6 cột; chi tiết đầy đủ",
-    "actual": "6 cột; chi tiết đầy đủ",
+    "scenario": "Đánh giá Customer danh sách/popup",
+    "expected": "6 cột; popup gọn, không ID/audit/lịch sử quản trị",
+    "actual": "6 cột; popup gọn, không ID/audit/lịch sử quản trị",
     "status": "PASS"
   },
   {
     "id": "UX19",
-    "scenario": "Customer xem phản hồi Manager mới nhất",
-    "expected": "hiện phản hồi đã sửa; không có nút sửa đánh giá",
-    "actual": "hiện phản hồi đã sửa; không có nút sửa đánh giá",
+    "scenario": "Customer xem trả lời Manager mới nhất",
+    "expected": "hiện trả lời đã sửa; không có nút sửa đánh giá",
+    "actual": "hiện trả lời đã sửa; không có nút sửa đánh giá",
     "status": "PASS"
   },
   {
@@ -186,6 +186,69 @@
     "scenario": "Bỏ bộ lọc và nút đặt lại bị lặp",
     "expected": "một bộ sắp xếp sản phẩm; một nút reset mỗi danh sách; không lặp bộ lọc sao",
     "actual": "một bộ sắp xếp sản phẩm; một nút reset mỗi danh sách; không lặp bộ lọc sao",
+    "status": "PASS"
+  },
+  {
+    "id": "UX29",
+    "scenario": "Click và Enter ở bảng phân tích sản phẩm → feedback → chi tiết",
+    "expected": "không nút xem người đánh giá; mở đúng ID feedback và form trả lời",
+    "actual": "không nút xem người đánh giá; mở đúng ID feedback và form trả lời",
+    "status": "PASS"
+  },
+  {
+    "id": "UX30",
+    "scenario": "Click và Enter ở bảng phân tích khảo sát",
+    "expected": "không nút Chi tiết; mở kết quả đúng khảo sát",
+    "actual": "không nút Chi tiết; mở kết quả đúng khảo sát",
+    "status": "PASS"
+  },
+  {
+    "id": "UX31",
+    "scenario": "Sửa trạng thái khảo sát đã có câu trả lời",
+    "expected": "đóng trong form sửa; giữ nguyên câu hỏi, người nhận và số kết quả",
+    "actual": "đóng trong form sửa; giữ nguyên câu hỏi, người nhận và số kết quả",
+    "status": "PASS"
+  },
+  {
+    "id": "UX32",
+    "scenario": "Người nhận và đóng khảo sát chưa có kết quả nằm trong form sửa",
+    "expected": "lưu danh sách người nhận và trạng thái bằng form; không nút riêng ngoài bảng",
+    "actual": "lưu danh sách người nhận và trạng thái bằng form; không nút riêng ngoài bảng",
+    "status": "PASS"
+  },
+  {
+    "id": "UX33",
+    "scenario": "Cột thao tác khách hàng cố định và nút Sửa thẳng hàng",
+    "expected": "cùng tọa độ và chiều rộng; không nút khóa; giao diện dùng Feedback",
+    "actual": "cùng tọa độ và chiều rộng; không nút khóa; giao diện dùng Feedback",
+    "status": "PASS"
+  },
+  {
+    "id": "UX34",
+    "scenario": "Lưu bộ câu hỏi có tên và nạp lại ở phiên mới",
+    "expected": "giữ 4 loại, thứ tự, lựa chọn/bắt buộc; lưu không làm mất form",
+    "actual": "giữ 4 loại, thứ tự, lựa chọn/bắt buộc; lưu không làm mất form",
+    "status": "PASS"
+  },
+  {
+    "id": "UX35",
+    "scenario": "Lỗi lưu và hủy thay câu hỏi không mất bản đang soạn",
+    "expected": "hiện lỗi tại form, giữ tên/câu hỏi; chỉ thay khi xác nhận",
+    "actual": "hiện lỗi tại form, giữ tên/câu hỏi; chỉ thay khi xác nhận",
+    "status": "PASS"
+  },
+  {
+    "id": "UX36",
+    "scenario": "Ẩn email/số điện thoại trên người nhận cả tạo và sửa",
+    "expected": "giữ chọn khách, tên, tài khoản và thông tin phân nhóm",
+    "actual": "giữ chọn khách, tên, tài khoản và thông tin phân nhóm",
+    "status": "PASS"
+  },
+  {
+    "id": "UX37",
+    "scenario": "Popup Customer chỉ hiển thị đánh giá của mình và reply; dùng được ở 375px",
+    "expected": "không API quản trị/audit; không ID/lịch sử; reply mới và sản phẩm đúng",
+    "actual": "không API quản trị/audit; không ID/lịch sử; reply mới và sản phẩm đúng",
     "status": "PASS"
   },
   {
