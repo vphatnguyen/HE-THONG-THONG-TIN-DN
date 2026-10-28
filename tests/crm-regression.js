@@ -27,7 +27,7 @@ async function run(){
   customerB=status(await api('POST','/api/auth/login',null,{username:`${prefix}_b`,password:'test-pass'}),200).token;
   const profile=status(await api('GET','/api/customer/profile',customerA),200); accountA=profile.account.id;profileA=profile.customer.id;
   supplier=status(await api('POST','/api/admin/suppliers',manager,{name:prefix,status:'ACTIVE'}),201).id;
-  product=status(await api('POST','/api/admin/products',manager,{name:prefix,category:'QA',supplier_id:supplier,price:100}),201).id;
+  product=status(await api('POST','/api/admin/products',manager,{name:prefix,category:'Serum',supplier_id:supplier,price:100}),201).id;
   await check('CRM01','Customer gọi API quản trị','403',async()=>status(await api('GET','/api/manager/customers',customerA),403));
   await check('CRM02','Không có phiên đăng nhập','401',async()=>status(await api('GET','/api/customer/feedbacks'),401));
   await check('CRM03','JWT hết hạn','401',async()=>status(await api('GET','/api/customer/feedbacks',jwt.sign({id:accountA,role:'CUSTOMER'},process.env.JWT_SECRET || 'cosmetics_crm_secret_2026',{expiresIn:-1})),401));
@@ -60,10 +60,10 @@ async function run(){
   await check('CRM29','Thống kê sau khóa/ngừng kinh doanh','1 result; 1 đánh giá 5 sao',async()=>{const report=status(await api('GET','/api/manager/analytics',manager),200);const row=report.feedbackByProduct.find(p=>p.id===product || p.product_id===product);assert(row);assert.equal(Number(row.count),1);assert.equal(Number(row.average),5);const detail=status(await api('GET',`/api/manager/surveys/${survey}/results`,manager),200);assert(detail);return 'KPI sản phẩm count=1, average=5; API kết quả 200';});
   await check('CRM30','Ngày/filter/page API kết hợp','1 bản ghi đúng ID; tổng chính xác',async()=>{const r=await api('GET',`/api/manager/feedbacks?search=${feedback}&status=REPLIED&from=2020-01-01&to=2099-12-31&sort_by=id&sort_dir=asc&page=1&page_size=1`,manager);status(r,200);assert.equal(r.data[0].id,feedback);assert.equal(r.data.length,1);assert(Number(r.total)>=1);});
   await check('CRM31','Filter API không hợp lệ','400 đảo ngày, ngày sai, page sai, sort sai',async()=>{for(const query of ['from=2026-02-30','from=2026-12-31&to=2026-01-01','page=0','page_size=101','sort_by=password'])status(await api('GET','/api/manager/feedbacks?'+query,manager),400);});
-  await check('CRM32','Giá/trạng thái/nhà cung cấp không hợp lệ','400, không tạo sản phẩm',async()=>{for(const change of [{price:-1},{launch_status:'BAD'},{supplier_id:2147483647}])status(await api('POST','/api/admin/products',manager,{name:prefix,category:'QA',...change}),400);});
+  await check('CRM32','Giá/trạng thái/nhà cung cấp không hợp lệ','400, không tạo sản phẩm',async()=>{for(const change of [{price:-1},{launch_status:'BAD'},{supplier_id:2147483647}])status(await api('POST','/api/admin/products',manager,{name:prefix,category:'Serum',...change}),400);});
   await check('CRM33','Chỉnh sửa ID khách hàng','ID bất biến',async()=>{status(await api('PUT',`/api/manager/customers/${accountA}`,manager,{...profile.account,id:123,customer_id:123,age:25,gender:'Nu'}),200);const p=status(await api('GET','/api/customer/profile',customerA),200);assert.equal(p.account.id,accountA);assert.equal(p.customer.id,profileA);});
   // A second survey tests expiry between opening and sending, and product with survey but no feedback.
-  const secondProduct=status(await api('POST','/api/admin/products',manager,{name:prefix+'_survey_only',category:'QA',price:1}),201).id;
+  const secondProduct=status(await api('POST','/api/admin/products',manager,{name:prefix+'_survey_only',category:'Serum',price:1}),201).id;
   const expiring=status(await api('POST','/api/manager/surveys',manager,{...payload,title:prefix+'_expiry',target_product_ids:[secondProduct]}),201).id;
   status(await api('POST',`/api/manager/surveys/${expiring}/send`,manager,{}),200);
   const expQuestions=status(await api('GET',`/api/customer/surveys/${expiring}`,customerA),200).questions;
@@ -78,7 +78,7 @@ async function run(){
     assert.equal(status(await api('GET','/api/customer/profile',customerA),200).account.full_name,'Tên mới');
   });
   await check('CRM38','CRUD sản phẩm chưa có quan hệ','thêm/sửa/đọc/xóa 201/200',async()=>{
-    const id=status(await api('POST','/api/admin/products',manager,{name:prefix+'_crud',category:'QA',price:10}),201).id;
+    const id=status(await api('POST','/api/admin/products',manager,{name:prefix+'_crud',category:'Serum',price:10}),201).id;
     const before=status(await api('GET',`/api/admin/products?search=%23${id}`,manager),200).find(p=>p.id===id);assert(before);
     status(await api('PUT',`/api/admin/products/${id}`,manager,{name:prefix+'_edited',price:20,_version:before.record_version}),200);
     status(await api('PUT',`/api/admin/products/${id}`,manager,{name:'Stale',_version:before.record_version}),409);
@@ -148,7 +148,7 @@ async function run(){
     status(await api('PUT',`/api/manager/surveys/${survey}/status`,manager,{status:'CLOSED'}),200);
   });
   await check('CRM52','Customer sửa cùng lúc Manager phản hồi','REPLIED nhất quán, audit đúng, không sửa sau phản hồi',async()=>{
-    const id=status(await api('POST','/api/admin/products',manager,{name:prefix+'_race',category:'QA',price:1}),201).id;
+    const id=status(await api('POST','/api/admin/products',manager,{name:prefix+'_race',category:'Serum',price:1}),201).id;
     status(await api('POST','/api/customer/feedbacks',customerA,{product_id:id,rating:4,content:'Trước'}),201);
     const f=status(await api('GET','/api/customer/feedbacks',customerA),200).find(f=>f.product_id===id);
     const [edit,reply]=await Promise.all([api('PUT',`/api/customer/feedbacks/${f.id}`,customerA,{rating:3,content:'Sau',_version:f.record_version}),api('PUT',`/api/manager/feedbacks/${f.id}/reply`,manager,{reply_content:'CSKH',expected_reply_content:null})]);
@@ -179,7 +179,7 @@ async function run(){
     assert(!Object.hasOwn(d.product,'stock_quantity'));assert.equal(d.stats.total_reviews,1);assert.equal(Number(d.stats.avg_rating),5);
   });
   await check('CRM56','Payload tồn kho cũ không tác động nghiệp vụ','bỏ qua field cũ; tạo/sửa sản phẩm bình thường; sort tồn kho không còn hỗ trợ',async()=>{
-    const id=status(await api('POST','/api/admin/products',manager,{name:prefix+'_old_payload',category:'QA',price:10,stock_quantity:-99}),201).id;
+    const id=status(await api('POST','/api/admin/products',manager,{name:prefix+'_old_payload',category:'Serum',price:10,stock_quantity:-99}),201).id;
     status(await api('PUT',`/api/admin/products/${id}`,manager,{name:prefix+'_old_payload',price:20,stock:999}),200);
     const row=status(await api('GET',`/api/admin/products?search=%23${id}`,manager),200)[0];assert.equal(Number(row.price),20);assert(!Object.hasOwn(row,'stock_quantity'));
     status(await api('GET','/api/admin/products?sort_by=stock_quantity',manager),400);
@@ -243,6 +243,36 @@ async function run(){
     const own=status(await api('GET',`/api/customer/feedbacks/${feedback}`,customerA),200);assert.equal(own.product_id,product);assert(own.product_name);assert(Object.hasOwn(own,'product_price'));
     const other=status(await api('POST','/api/auth/login',null,{username:prefix+'_n2',password:'p'}),200).token;
     status(await api('GET',`/api/customer/feedbacks/${feedback}`,other),404);
+  });
+  await check('CRM64','CRUD danh mục chưa có sản phẩm','thêm/sửa/tìm/xóa; tên duy nhất; chặn bản cũ',async()=>{
+    const name=prefix+'_category_empty';
+    const id=status(await api('POST','/api/admin/categories',manager,{name,description:'Danh mục QA',status:'ACTIVE'}),201).id;
+    status(await api('POST','/api/admin/categories',manager,{name,status:'ACTIVE'}),409);
+    const before=status(await api('GET',`/api/admin/categories?search=%23${id}`,manager),200).find(c=>c.id===id);assert(before);
+    status(await api('PUT',`/api/admin/categories/${id}`,manager,{name:name+'_new',description:'Đã sửa',status:'ACTIVE',_version:before.record_version}),200);
+    status(await api('PUT',`/api/admin/categories/${id}`,manager,{name:'Stale',_version:before.record_version}),409);
+    assert.equal(status(await api('DELETE',`/api/admin/categories/${id}`,manager),200).softDeleted,false);
+  });
+  await check('CRM65','Danh mục có đánh giá đổi tên nhưng sản phẩm không đổi danh mục','cascade tên; đổi quan hệ 400; xóa mềm INACTIVE',async()=>{
+    const name=prefix+'_category_linked';
+    const categoryId=status(await api('POST','/api/admin/categories',manager,{name,status:'ACTIVE'}),201).id;
+    const productId=status(await api('POST','/api/admin/products',manager,{name:prefix+'_category_product',category:name,price:1}),201).id;
+    status(await api('POST','/api/customer/feedbacks',customerA,{product_id:productId,rating:5,content:'Khóa quan hệ danh mục'}),201);
+    const productBefore=status(await api('GET',`/api/admin/products?search=%23${productId}`,manager),200).find(p=>p.id===productId);
+    status(await api('PUT',`/api/admin/products/${productId}`,manager,{name:productBefore.name,category:'Serum',price:1,_version:productBefore.record_version}),400);
+    const category=status(await api('GET',`/api/admin/categories?search=%23${categoryId}`,manager),200).find(c=>c.id===categoryId);
+    const renamed=name+'_renamed';
+    status(await api('PUT',`/api/admin/categories/${categoryId}`,manager,{name:renamed,status:'ACTIVE',_version:category.record_version}),200);
+    assert.equal((await query('SELECT category FROM Products WHERE id=?',[productId]))[0].category,renamed);
+    assert.equal(status(await api('DELETE',`/api/admin/categories/${categoryId}`,manager),200).softDeleted,true);
+    assert.equal((await query('SELECT status FROM Categories WHERE id=?',[categoryId]))[0].status,'INACTIVE');
+  });
+  await check('CRM66','Đổi tên nhà cung cấp đã có sản phẩm và đánh giá','200; giữ supplier_id và feedback',async()=>{
+    const before=status(await api('GET',`/api/admin/suppliers?search=%23${supplier}`,manager),200).find(s=>s.id===supplier);assert(before);
+    const renamed=prefix+'_supplier_renamed';
+    status(await api('PUT',`/api/admin/suppliers/${supplier}`,manager,{name:renamed,status:before.status,_version:before.record_version}),200);
+    const row=(await query('SELECT p.supplier_id,s.name FROM Products p JOIN Suppliers s ON s.id=p.supplier_id WHERE p.id=?',[product]))[0];
+    assert.equal(row.supplier_id,supplier);assert.equal(row.name,renamed);assert.equal((await query('SELECT id FROM Feedbacks WHERE id=?',[feedback])).length,1);
   });
   await query('DELETE FROM SurveyQuestionTemplates WHERE created_by=? AND name IN (?,?)',[jwt.decode(manager).id,templateName,templateName+'_concurrent']);
   const file='tests/artifacts/crm-api-results.json';fs.writeFileSync(file,JSON.stringify(results,null,2));

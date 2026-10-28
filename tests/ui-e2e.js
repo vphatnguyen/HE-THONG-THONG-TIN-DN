@@ -59,7 +59,7 @@ async function run() {
     IF OBJECT_ID('dbo.FeedbackAuditLog', 'U') IS NOT NULL DELETE FROM FeedbackAuditLog WHERE feedback_id IN (SELECT id FROM Feedbacks WHERE product_id IN (SELECT id FROM Products WHERE name='qa_e2e_ui_product'));
     DELETE FROM Feedbacks WHERE product_id IN (SELECT id FROM Products WHERE name='qa_e2e_ui_product');
     DELETE FROM Products WHERE name='qa_e2e_ui_product';
-    INSERT INTO Products(name,category,price,launch_status) VALUES(N'qa_e2e_ui_product',N'Test UI',123000,'OFFICIAL');
+    INSERT INTO Products(name,category,price,launch_status) VALUES(N'qa_e2e_ui_product',N'Serum',123000,'OFFICIAL');
   `);
   const uiProduct = (await dbQuery(pool, "SELECT id FROM Products WHERE name='qa_e2e_ui_product'"))[0];
 

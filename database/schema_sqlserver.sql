@@ -31,6 +31,7 @@ IF OBJECT_ID('dbo.FeedbackAuditLog', 'U') IS NOT NULL DROP TABLE dbo.FeedbackAud
 IF OBJECT_ID('dbo.Feedbacks', 'U') IS NOT NULL DROP TABLE dbo.Feedbacks;
 IF OBJECT_ID('dbo.Surveys', 'U') IS NOT NULL DROP TABLE dbo.Surveys;
 IF OBJECT_ID('dbo.Products', 'U') IS NOT NULL DROP TABLE dbo.Products;
+IF OBJECT_ID('dbo.Categories', 'U') IS NOT NULL DROP TABLE dbo.Categories;
 IF OBJECT_ID('dbo.Suppliers', 'U') IS NOT NULL DROP TABLE dbo.Suppliers;
 IF OBJECT_ID('dbo.Customers', 'U') IS NOT NULL DROP TABLE dbo.Customers;
 IF OBJECT_ID('dbo.Accounts', 'U') IS NOT NULL DROP TABLE dbo.Accounts;
@@ -60,6 +61,7 @@ GO
 CREATE UNIQUE INDEX UX_Accounts_Email_NotNull ON dbo.Accounts(email) WHERE email IS NOT NULL;
 GO
 
+-- Bảng 2: SurveyQuestionTemplates - Mẫu câu hỏi thuộc từng Manager
 -- Additive and idempotent: question templates belonging to each Manager.
 IF OBJECT_ID('dbo.SurveyQuestionTemplates','U') IS NULL
 BEGIN
@@ -116,7 +118,7 @@ BEGIN
 END;
 GO
 
--- Bảng 2: Customers - Thông tin chi tiết khách hàng
+-- Bảng 3: Customers - Thông tin chi tiết khách hàng
 CREATE TABLE dbo.Customers (
     id              INT IDENTITY(1,1) PRIMARY KEY,
     account_id      INT NOT NULL UNIQUE,
@@ -129,7 +131,7 @@ CREATE TABLE dbo.Customers (
 );
 GO
 
--- Bảng 3: Suppliers - Nhà cung cấp mỹ phẩm
+-- Bảng 4: Suppliers - Nhà cung cấp mỹ phẩm
 CREATE TABLE dbo.Suppliers (
     record_version ROWVERSION NOT NULL,
     id              INT IDENTITY(1,1) PRIMARY KEY,
@@ -144,7 +146,20 @@ CREATE TABLE dbo.Suppliers (
 );
 GO
 
--- Bảng 4: Products - Danh mục mỹ phẩm
+-- Bảng 5: Categories - Danh mục/loại sản phẩm
+CREATE TABLE dbo.Categories (
+    record_version ROWVERSION NOT NULL,
+    id              INT IDENTITY(1,1) PRIMARY KEY,
+    name            NVARCHAR(50) NOT NULL,
+    description     NVARCHAR(500),
+    status          NVARCHAR(10) NOT NULL DEFAULT 'ACTIVE'
+                    CONSTRAINT CK_Categories_status CHECK (status IN ('ACTIVE','INACTIVE')),
+    created_at      DATETIME2 NOT NULL DEFAULT GETDATE(),
+    CONSTRAINT UQ_Categories_Name UNIQUE (name)
+);
+GO
+
+-- Bảng 6: Products - Danh mục mỹ phẩm
 CREATE TABLE dbo.Products (
     record_version ROWVERSION NOT NULL,
     id              INT IDENTITY(1,1) PRIMARY KEY,
@@ -157,11 +172,12 @@ CREATE TABLE dbo.Products (
     launch_status   NVARCHAR(10) DEFAULT 'OFFICIAL'
                     CONSTRAINT CK_Products_launch CHECK (launch_status IN ('OFFICIAL','UPCOMING')),
     created_at      DATETIME2 DEFAULT GETDATE(),
+    CONSTRAINT FK_Products_Categories FOREIGN KEY (category) REFERENCES dbo.Categories(name) ON UPDATE CASCADE,
     CONSTRAINT FK_Products_Suppliers FOREIGN KEY (supplier_id) REFERENCES dbo.Suppliers(id)
 );
 GO
 
--- Bảng 5: Surveys - Chiến dịch khảo sát sản phẩm mới
+-- Bảng 7: Surveys - Chiến dịch khảo sát sản phẩm mới
 CREATE TABLE dbo.Surveys (
     record_version ROWVERSION NOT NULL,
     id                  INT IDENTITY(1,1) PRIMARY KEY,
@@ -179,7 +195,32 @@ CREATE TABLE dbo.Surveys (
 );
 GO
 
--- Bảng 6: Questions - Câu hỏi của bảng khảo sát
+-- Bảng 8: SurveyProducts - Liên kết nhiều-nhiều giữa khảo sát và sản phẩm
+CREATE TABLE dbo.SurveyProducts (
+    id          INT IDENTITY(1,1) PRIMARY KEY,
+    survey_id   INT NOT NULL,
+    product_id  INT NOT NULL,
+    CONSTRAINT FK_SurveyProducts_Surveys FOREIGN KEY (survey_id) REFERENCES dbo.Surveys(id) ON DELETE CASCADE,
+    CONSTRAINT FK_SurveyProducts_Products FOREIGN KEY (product_id) REFERENCES dbo.Products(id),
+    CONSTRAINT UQ_SurveyProducts UNIQUE (survey_id, product_id)
+);
+GO
+
+-- Bảng 9: SurveyRecipients - Danh sách khách hàng nhận khảo sát
+CREATE TABLE dbo.SurveyRecipients (
+    id          INT IDENTITY(1,1) PRIMARY KEY,
+    survey_id   INT NOT NULL,
+    customer_id INT NOT NULL,
+    sent_by     INT,
+    sent_at     DATETIME2 DEFAULT GETDATE(),
+    CONSTRAINT FK_SurveyRecipients_Surveys FOREIGN KEY (survey_id) REFERENCES dbo.Surveys(id) ON DELETE CASCADE,
+    CONSTRAINT FK_SurveyRecipients_Customers FOREIGN KEY (customer_id) REFERENCES dbo.Customers(id),
+    CONSTRAINT FK_SurveyRecipients_Accounts FOREIGN KEY (sent_by) REFERENCES dbo.Accounts(id),
+    CONSTRAINT UQ_SurveyRecipients UNIQUE (survey_id, customer_id)
+);
+GO
+
+-- Bảng 10: Questions - Câu hỏi của bảng khảo sát
 CREATE TABLE dbo.Questions (
     id              INT IDENTITY(1,1) PRIMARY KEY,
     survey_id       INT NOT NULL,
@@ -193,7 +234,7 @@ CREATE TABLE dbo.Questions (
 );
 GO
 
--- Bảng 7: SurveyResults - Lượt nộp bài khảo sát
+-- Bảng 11: SurveyResults - Lượt nộp bài khảo sát
 CREATE TABLE dbo.SurveyResults (
     id              INT IDENTITY(1,1) PRIMARY KEY,
     survey_id       INT NOT NULL,
@@ -205,7 +246,7 @@ CREATE TABLE dbo.SurveyResults (
 );
 GO
 
--- Bảng 8: SurveyAnswers - Câu trả lời chi tiết của khảo sát
+-- Bảng 12: SurveyAnswers - Câu trả lời chi tiết của khảo sát
 CREATE TABLE dbo.SurveyAnswers (
     id                  INT IDENTITY(1,1) PRIMARY KEY,
     survey_result_id    INT NOT NULL,
@@ -216,7 +257,7 @@ CREATE TABLE dbo.SurveyAnswers (
 );
 GO
 
--- Bảng 9: Feedbacks - Phản hồi & đánh giá sản phẩm từ khách hàng
+-- Bảng 13: Feedbacks - Phản hồi & đánh giá sản phẩm từ khách hàng
 CREATE TABLE dbo.Feedbacks (
     record_version ROWVERSION NOT NULL,
     id              INT IDENTITY(1,1) PRIMARY KEY,
@@ -235,7 +276,7 @@ CREATE TABLE dbo.Feedbacks (
 );
 GO
 
--- Bảng 10: FeedbackAuditLog - Lịch sử chỉnh sửa đánh giá
+-- Bảng 14: FeedbackAuditLog - Lịch sử chỉnh sửa đánh giá
 CREATE TABLE dbo.FeedbackAuditLog (
     id              INT IDENTITY(1,1) PRIMARY KEY,
     feedback_id     INT NOT NULL,
@@ -251,6 +292,7 @@ CREATE TABLE dbo.FeedbackAuditLog (
 );
 GO
 
+-- Bảng 15: FeedbackReplyHistory - Lịch sử phản hồi của quản lý
 CREATE TABLE dbo.FeedbackReplyHistory (
     id INT IDENTITY(1,1) PRIMARY KEY,
     feedback_id INT NOT NULL REFERENCES dbo.Feedbacks(id),
@@ -265,6 +307,7 @@ GO
 -- TẠO INDEX để tối ưu hóa tìm kiếm
 -- ============================================================
 CREATE INDEX IX_Products_Category ON dbo.Products(category);
+CREATE INDEX IX_Categories_Status ON dbo.Categories(status);
 CREATE INDEX IX_Products_LaunchStatus ON dbo.Products(launch_status);
 CREATE INDEX IX_Products_Price ON dbo.Products(price);
 CREATE INDEX IX_Feedbacks_Status ON dbo.Feedbacks(status);
@@ -273,6 +316,10 @@ CREATE UNIQUE INDEX UX_Feedbacks_Customer_Product ON dbo.Feedbacks(customer_id, 
 CREATE INDEX IX_Customers_Age ON dbo.Customers(age);
 CREATE INDEX IX_Accounts_Role ON dbo.Accounts(role);
 CREATE INDEX IX_Surveys_Status ON dbo.Surveys(status);
+CREATE INDEX IX_SurveyProducts_Survey ON dbo.SurveyProducts(survey_id);
+CREATE INDEX IX_SurveyProducts_Product ON dbo.SurveyProducts(product_id);
+CREATE INDEX IX_SurveyRecipients_Survey ON dbo.SurveyRecipients(survey_id);
+CREATE INDEX IX_SurveyRecipients_Customer ON dbo.SurveyRecipients(customer_id);
 GO
 
 -- ============================================================
@@ -320,6 +367,20 @@ INSERT INTO dbo.Suppliers (name, contact_name, email, phone, address, status) VA
 (N'Maybelline Vietnam',          N'Hoàng Bảo Long',     N'vn@maybelline.com',       N'0281000006', N'90 Nguyễn Huệ, Q.1, TP.HCM',          'INACTIVE');
 GO
 
+-- Dữ liệu danh mục sản phẩm
+INSERT INTO dbo.Categories (name, description, status) VALUES
+(N'Son môi', N'Các sản phẩm son màu, son dưỡng và chăm sóc môi.', 'ACTIVE'),
+(N'Kem dưỡng da', N'Các sản phẩm dưỡng ẩm và chăm sóc da dạng kem.', 'ACTIVE'),
+(N'Serum', N'Tinh chất chăm sóc da chuyên sâu.', 'ACTIVE'),
+(N'Kem chống nắng', N'Sản phẩm bảo vệ da khỏi tác động của tia UV.', 'ACTIVE'),
+(N'Phấn phủ', N'Sản phẩm hoàn thiện lớp nền và kiểm soát dầu.', 'ACTIVE'),
+(N'Sữa rửa mặt', N'Sản phẩm làm sạch da mặt.', 'ACTIVE'),
+(N'Toner', N'Sản phẩm cân bằng và chuẩn bị da.', 'ACTIVE'),
+(N'Mặt nạ', N'Sản phẩm chăm sóc da bổ sung theo liệu trình.', 'ACTIVE'),
+(N'Mascara', N'Sản phẩm trang điểm mi mắt.', 'ACTIVE'),
+(N'Phấn má hồng', N'Sản phẩm trang điểm tạo sắc hồng cho gương mặt.', 'ACTIVE');
+GO
+
 -- Dữ liệu sản phẩm mỹ phẩm
 INSERT INTO dbo.Products (name, category, supplier_id, price, description, launch_status) VALUES
 (N'Son môi nhung mịn Velvet Matte #01 Đỏ Ruby',        N'Son môi',         1, 350000, N'Son môi lâu trôi với công thức nhung mịn, màu đỏ ruby quyến rũ.',       'OFFICIAL'),
@@ -339,6 +400,13 @@ INSERT INTO dbo.Surveys (title, description, target_product_id, start_date, end_
 (N'Khảo sát thị hiếu Son môi Hè 2026', N'Thu thập ý kiến khách hàng về màu sắc, chất son và mức giá mong muốn cho dòng son Glossy Shine.', 9, '2026-06-01', '2026-08-31', 'ACTIVE', 2),
 (N'Khảo sát nhu cầu Serum chống lão hóa Peptide', N'Khảo sát trải nghiệm dưỡng da chống nhăn dành cho độ tuổi 25+ trước ngày mở bán chính thức.', 10, '2026-06-15', '2026-09-30', 'ACTIVE', 3),
 (N'Khảo sát mức độ hài lòng dịch vụ Quý 2/2026', N'Đánh giá chất lượng phục vụ, đóng gói và tư vấn làm đẹp của BeautyCRM.', NULL, '2026-04-01', '2026-06-30', 'ACTIVE', 2);
+GO
+
+-- Liên kết sản phẩm mục tiêu vào bảng nhiều-nhiều SurveyProducts
+INSERT INTO dbo.SurveyProducts (survey_id, product_id)
+SELECT id, target_product_id
+FROM dbo.Surveys
+WHERE target_product_id IS NOT NULL;
 GO
 
 -- Dữ liệu câu hỏi khảo sát (Questions)

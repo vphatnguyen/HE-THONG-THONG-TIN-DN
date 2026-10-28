@@ -101,8 +101,8 @@ async function setup() {
     INSERT INTO Customers (account_id,age,gender,skin_type,beauty_preferences)
       SELECT id,41,N'Nam',N'Da khô',N'Chống lão hóa' FROM Accounts WHERE username='${QA_PREFIX}customer_b';
     INSERT INTO Products (name,category,price,launch_status)
-      VALUES (N'${QA_PREFIX}official',N'Test',100000,'OFFICIAL'),
-             (N'${QA_PREFIX}upcoming',N'Test',100000,'UPCOMING');
+      VALUES (N'${QA_PREFIX}official',N'Serum',100000,'OFFICIAL'),
+             (N'${QA_PREFIX}upcoming',N'Serum',100000,'UPCOMING');
   `);
 
   const ids = (await query(`
@@ -174,7 +174,7 @@ async function run() {
   });
 
   await test('FB-06', 'Đánh giá', 'Nội dung chỉ chứa khoảng trắng', 'Chuẩn hóa thành NULL hoặc từ chối 400', 'P2', async () => {
-    const extra = await query(`INSERT INTO Products(name,category,price,launch_status) OUTPUT INSERTED.id VALUES(N'${QA_PREFIX}blank-content',N'Test',1,'OFFICIAL')`);
+    const extra = await query(`INSERT INTO Products(name,category,price,launch_status) OUTPUT INSERTED.id VALUES(N'${QA_PREFIX}blank-content',N'Serum',1,'OFFICIAL')`);
     const id = extra.recordset[0].id;
     const response = await api('POST', '/api/customer/feedbacks', customerAToken, { product_id: id, rating: 3, content: '   ' });
     const row = (await query('SELECT content FROM Feedbacks WHERE customer_id=@customer AND product_id=@product', { customer: customerAId, product: id })).recordset[0];
@@ -200,7 +200,7 @@ async function run() {
   });
 
   await test('FB-09', 'Đánh giá', 'Nội dung vượt 2000 ký tự', 'HTTP 400; không lưu DB', 'P2', async () => {
-    const extra = await query(`INSERT INTO Products(name,category,price,launch_status) OUTPUT INSERTED.id VALUES(N'${QA_PREFIX}long-content',N'Test',1,'OFFICIAL')`);
+    const extra = await query(`INSERT INTO Products(name,category,price,launch_status) OUTPUT INSERTED.id VALUES(N'${QA_PREFIX}long-content',N'Serum',1,'OFFICIAL')`);
     const id = extra.recordset[0].id;
     const response = await api('POST', '/api/customer/feedbacks', customerBToken, { product_id: id, rating: 4, content: 'a'.repeat(2001) });
     const count = (await query('SELECT COUNT(*) AS n FROM Feedbacks WHERE customer_id=@customer AND product_id=@product', { customer: customerBId, product: id })).recordset[0].n;
@@ -209,7 +209,7 @@ async function run() {
   });
 
   await test('FB-10', 'Đánh giá', 'Hai request đồng thời cho cùng sản phẩm', 'Một HTTP 201, một HTTP 409; DB chỉ có 1 dòng', 'P0', async () => {
-    const extra = await query(`INSERT INTO Products(name,category,price,launch_status) OUTPUT INSERTED.id VALUES(N'${QA_PREFIX}concurrent',N'Test',1,'OFFICIAL')`);
+    const extra = await query(`INSERT INTO Products(name,category,price,launch_status) OUTPUT INSERTED.id VALUES(N'${QA_PREFIX}concurrent',N'Serum',1,'OFFICIAL')`);
     const id = extra.recordset[0].id;
     const responses = await Promise.all([
       api('POST', '/api/customer/feedbacks', customerBToken, { product_id: id, rating: 4, content: 'request A' }),
@@ -231,7 +231,7 @@ async function run() {
   });
 
   await test('FB-12', 'Chỉnh sửa đánh giá', 'Khách hàng sửa đánh giá khi còn PENDING kèm ghi Audit Log', 'HTTP 200; cập nhật rating/content và lưu FeedbackAuditLog', 'P1', async () => {
-    const extra = await query(`INSERT INTO Products(name,category,price,launch_status) OUTPUT INSERTED.id VALUES(N'${QA_PREFIX}fb-edit-test',N'Test',1,'OFFICIAL')`);
+    const extra = await query(`INSERT INTO Products(name,category,price,launch_status) OUTPUT INSERTED.id VALUES(N'${QA_PREFIX}fb-edit-test',N'Serum',1,'OFFICIAL')`);
     const testProdId = extra.recordset[0].id;
     const postRes = await api('POST', '/api/customer/feedbacks', customerBToken, { product_id: testProdId, rating: 4, content: 'Đánh giá ban đầu' });
     expect(postRes.status === 201, `Create feedback HTTP ${postRes.status}`);

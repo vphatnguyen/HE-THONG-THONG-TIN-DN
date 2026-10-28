@@ -1,0 +1,211 @@
+======================================================================
+HƯỚNG DẪN SAO LƯU VÀ PHỤC HỒI CSDL ĐƠN GIẢN
+======================================================================
+
+MỤC TIÊU
+--------
+Sao lưu toàn bộ CosmeticsCRM_DB, giả lập xóa mất dữ liệu, sau đó phục
+hồi nguyên vẹn bằng Microsoft SQL Server.
+
+Chỉ sử dụng FULL BACKUP. Không sử dụng Differential Backup.
+
+File lệnh SQL đã chuẩn bị sẵn: database\backup_restore.sql
+
+LƯU Ý
+-----
+- Chỉ giả lập xóa dữ liệu trên CSDL học tập hoặc kiểm thử.
+- Full Backup chứa toàn bộ 15 bảng và dữ liệu tại thời điểm backup.
+- Dữ liệu tạo sau thời điểm Full Backup sẽ không có trong file backup.
+- Trang Admin chỉ xem/lưu lịch sử. Backup và Restore chạy trong SSMS.
+
+======================================================================
+BƯỚC 1 - TẠO THƯ MỤC BACKUP
+======================================================================
+
+Chạy trong SSMS:
+
+USE master;
+GO
+EXEC master.dbo.xp_create_subdir N'C:\CosmeticsCRM_Backup';
+GO
+
+Nếu lệnh lỗi, tạo thủ công thư mục C:\CosmeticsCRM_Backup trên máy chạy
+SQL Server và cấp quyền đọc/ghi cho dịch vụ SQL Server.
+
+======================================================================
+BƯỚC 2 - TẠO DỮ LIỆU DEMO
+======================================================================
+
+USE CosmeticsCRM_DB;
+GO
+
+DELETE FROM dbo.Suppliers
+WHERE name = N'NHÀ CUNG CẤP DEMO PHỤC HỒI';
+GO
+
+INSERT INTO dbo.Suppliers
+    (name, contact_name, email, phone, address, status)
+VALUES
+    (N'NHÀ CUNG CẤP DEMO PHỤC HỒI',
+     N'Người kiểm thử',
+     N'restore.demo@example.com',
+     N'0900000000',
+     N'Dữ liệu dùng để kiểm tra phục hồi',
+     'ACTIVE');
+GO
+
+SELECT * FROM dbo.Suppliers
+WHERE name = N'NHÀ CUNG CẤP DEMO PHỤC HỒI';
+GO
+
+Kết quả mong đợi: có 1 dòng.
+
+======================================================================
+BƯỚC 3 - FULL BACKUP TOÀN BỘ CSDL
+======================================================================
+
+USE master;
+GO
+
+BACKUP DATABASE CosmeticsCRM_DB
+TO DISK = N'C:\CosmeticsCRM_Backup\CosmeticsCRM_FULL.bak'
+WITH
+    INIT,
+    CHECKSUM,
+    NAME = N'Full Backup CosmeticsCRM_DB',
+    STATS = 10;
+GO
+
+Kiểm tra file backup:
+
+RESTORE VERIFYONLY
+FROM DISK = N'C:\CosmeticsCRM_Backup\CosmeticsCRM_FULL.bak'
+WITH CHECKSUM;
+GO
+
+Kết quả mong đợi: The backup set on file 1 is valid.
+
+Full Backup chứa toàn bộ 15 bảng:
+
+1. Accounts
+2. SurveyQuestionTemplates
+3. Customers
+4. Suppliers
+5. Categories
+6. Products
+7. Surveys
+8. SurveyProducts
+9. SurveyRecipients
+10. Questions
+11. SurveyResults
+12. SurveyAnswers
+13. Feedbacks
+14. FeedbackAuditLog
+15. FeedbackReplyHistory
+
+======================================================================
+BƯỚC 4 - GIẢ LẬP MẤT DỮ LIỆU
+======================================================================
+
+CẢNH BÁO: chỉ chạy trên CSDL học tập/kiểm thử.
+
+USE CosmeticsCRM_DB;
+GO
+
+DELETE FROM dbo.Suppliers
+WHERE name = N'NHÀ CUNG CẤP DEMO PHỤC HỒI';
+GO
+
+SELECT COUNT(*) AS SoDongSauKhiXoa
+FROM dbo.Suppliers
+WHERE name = N'NHÀ CUNG CẤP DEMO PHỤC HỒI';
+GO
+
+Kết quả mong đợi: SoDongSauKhiXoa = 0.
+
+======================================================================
+BƯỚC 5 - PHỤC HỒI FULL BACKUP
+======================================================================
+
+Trước khi chạy:
+
+1. Dừng ứng dụng Node.js.
+2. Đóng các query đang dùng CosmeticsCRM_DB.
+3. Mở New Query và chọn database master.
+
+Chạy:
+
+USE master;
+GO
+
+ALTER DATABASE CosmeticsCRM_DB
+SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+GO
+
+RESTORE DATABASE CosmeticsCRM_DB
+FROM DISK = N'C:\CosmeticsCRM_Backup\CosmeticsCRM_FULL.bak'
+WITH
+    REPLACE,
+    RECOVERY,
+    CHECKSUM,
+    STATS = 10;
+GO
+
+ALTER DATABASE CosmeticsCRM_DB SET MULTI_USER;
+GO
+
+======================================================================
+BƯỚC 6 - KIỂM TRA KẾT QUẢ
+======================================================================
+
+USE CosmeticsCRM_DB;
+GO
+
+SELECT * FROM dbo.Suppliers
+WHERE name = N'NHÀ CUNG CẤP DEMO PHỤC HỒI';
+GO
+
+Kết quả mong đợi: dữ liệu demo xuất hiện lại.
+
+Kiểm tra đủ 15 bảng:
+
+SELECT COUNT(*) AS TongSoBang FROM sys.tables;
+GO
+
+Kết quả mong đợi: TongSoBang = 15.
+
+Kiểm tra database:
+
+SELECT name, state_desc
+FROM sys.databases
+WHERE name = N'CosmeticsCRM_DB';
+GO
+
+Kết quả mong đợi: state_desc = ONLINE.
+
+Kiểm tra tính toàn vẹn:
+
+DBCC CHECKDB (N'CosmeticsCRM_DB') WITH NO_INFOMSGS;
+GO
+
+Kết quả mong đợi: không có lỗi consistency.
+
+Sau đó khởi động lại ứng dụng Node.js.
+
+======================================================================
+MINH CHỨNG ĐƯA VÀO BÁO CÁO
+======================================================================
+
+1. Ảnh dữ liệu demo tồn tại.
+2. Ảnh Full Backup thành công.
+3. Ảnh RESTORE VERIFYONLY báo backup hợp lệ.
+4. Ảnh dữ liệu demo bằng 0 sau khi xóa.
+5. Ảnh Restore Database thành công.
+6. Ảnh dữ liệu demo xuất hiện lại.
+7. Ảnh TongSoBang = 15 và database ONLINE.
+
+KẾT LUẬN
+--------
+Chỉ cần tạo Full Backup sau khi dữ liệu đã đầy đủ. Khi xảy ra sự cố,
+Restore file CosmeticsCRM_FULL.bak sẽ phục hồi toàn bộ 15 bảng và dữ liệu
+về đúng trạng thái tại thời điểm backup.

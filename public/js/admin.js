@@ -345,6 +345,179 @@ async function deleteAccount(id, name) {
   } catch (e) { toast(e.message, 'error'); }
 }
 
+// ========== MANAGER: CATEGORIES ==========
+let currentCategoriesList = [];
+let currentEditingCategory = null;
+let categoryPage = 1;
+const CATEGORY_PAGE_SIZE = 10;
+
+async function renderManagerCategories() {
+  const requestedPage = state.currentPage;
+  setPageHeader('🏷️ Quản lý Danh mục', 'Quản lý loại sản phẩm; đổi tên vẫn giữ nguyên liên kết sản phẩm và lịch sử đánh giá',
+    `<button class="btn btn-primary" onclick="openCreateCategoryModal()">➕ Thêm danh mục</button>`);
+  showLoading();
+  try {
+    const categories = await api('GET', '/api/admin/categories');
+    if (requestedPage !== state.currentPage) return;
+    currentCategoriesList = categories || [];
+    setPageContent(`
+      <div class="filter-bar">
+        <input type="text" id="category-search" placeholder="🔍 Tên hoặc mô tả danh mục..." oninput="debounceCategoryFilters()">
+        <select id="category-status" onchange="filterCategories()">
+          <option value="">Tất cả trạng thái</option>
+          <option value="ACTIVE">✓ Đang sử dụng</option>
+          <option value="INACTIVE">✕ Ngừng sử dụng</option>
+        </select>
+        <button class="btn btn-secondary" onclick="resetCategoryFilters()">↺ Reset</button>
+      </div>
+      <div class="table-wrapper">
+        <table>
+          <thead><tr><th>ID</th><th>Tên danh mục</th><th>Mô tả</th><th>Sản phẩm</th><th>Đánh giá</th><th>Trạng thái</th><th>Ngày tạo</th><th>Thao tác</th></tr></thead>
+          <tbody id="categories-tbody"></tbody>
+        </table>
+      </div>
+      <div id="categories-pagination"></div>
+    `);
+    renderCategoryPage(1);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function renderCategoryRows(categories) {
+  return categories.map(category => `
+    <tr>
+      <td><span style="color:var(--text-muted)">#${category.id}</span></td>
+      <td><strong>${escapeHtml(category.name)}</strong></td>
+      <td style="max-width:320px;color:var(--text-secondary);font-size:12px">${escapeHtml(category.description || '—')}</td>
+      <td><span class="tag">${Number(category.product_count) || 0} sản phẩm</span></td>
+      <td style="color:var(--text-secondary)">💬 ${Number(category.review_count) || 0}</td>
+      <td>${statusBadge(category.status)}</td>
+      <td style="color:var(--text-muted);font-size:12px">${formatDate(category.created_at)}</td>
+      <td>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-secondary btn-sm" onclick="openEditCategoryModalById(${category.id})">Sửa</button>
+          <button class="btn btn-trash btn-sm" onclick="deleteCategory(${category.id},${escapeHtml(JSON.stringify(category.name))},${Number(category.product_count) || 0})">${Number(category.product_count) > 0 ? 'Ngừng dùng' : 'Xóa'}</button>
+        </div>
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="8" class="empty-cell">Không tìm thấy danh mục</td></tr>';
+}
+
+function renderCategoryPage(page) {
+  categoryPage = page;
+  const tbody = document.getElementById('categories-tbody');
+  const pagination = document.getElementById('categories-pagination');
+  if (!tbody) return;
+  const total = currentCategoriesList.length;
+  const maxPage = Math.max(1, Math.ceil(total / CATEGORY_PAGE_SIZE));
+  categoryPage = Math.min(categoryPage, maxPage);
+  const start = (categoryPage - 1) * CATEGORY_PAGE_SIZE;
+  tbody.innerHTML = renderCategoryRows(currentCategoriesList.slice(start, start + CATEGORY_PAGE_SIZE));
+  if (pagination) pagination.innerHTML = renderPaginationBar({
+    totalItems: total,
+    pageSize: CATEGORY_PAGE_SIZE,
+    currentPage: categoryPage,
+    onPageChangeFnName: 'renderCategoryPage'
+  });
+}
+
+const debounceCategoryFilters = debounce(filterCategories, 150);
+let categoryFilterSequence = 0;
+async function filterCategories() {
+  const sequence = ++categoryFilterSequence;
+  const params = new URLSearchParams();
+  const search = document.getElementById('category-search')?.value.trim();
+  const status = document.getElementById('category-status')?.value;
+  if (search) params.set('search', search);
+  if (status) params.set('status', status);
+  try {
+    const categories = await api('GET', `/api/admin/categories?${params}`);
+    if (sequence !== categoryFilterSequence) return;
+    currentCategoriesList = categories || [];
+    renderCategoryPage(1);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function resetCategoryFilters() {
+  const search = document.getElementById('category-search');
+  const status = document.getElementById('category-status');
+  if (search) search.value = '';
+  if (status) status.value = '';
+  filterCategories();
+}
+
+function openCreateCategoryModal() {
+  showModal('➕ Thêm danh mục mới', `
+    <div class="form-group"><label>Tên danh mục *</label><input id="mc-name" maxlength="50" placeholder="Ví dụ: Chăm sóc tóc"></div>
+    <div class="form-group"><label>Mô tả</label><textarea id="mc-description" maxlength="500" placeholder="Mô tả ngắn về loại sản phẩm"></textarea></div>
+    <div class="form-group"><label>Trạng thái</label><select id="mc-status"><option value="ACTIVE">✓ Đang sử dụng</option><option value="INACTIVE">✕ Ngừng sử dụng</option></select></div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Hủy</button><button class="btn btn-primary" onclick="createCategory()">✅ Thêm danh mục</button></div>
+  `);
+}
+
+async function createCategory() {
+  const name = document.getElementById('mc-name').value.trim();
+  if (!name) return toast('Tên danh mục là bắt buộc', 'warning');
+  try {
+    await api('POST', '/api/admin/categories', {
+      name,
+      description: document.getElementById('mc-description').value.trim(),
+      status: document.getElementById('mc-status').value
+    });
+    toast('Thêm danh mục thành công!', 'success');
+    closeModal();
+    renderManagerCategories();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function openEditCategoryModalById(id) {
+  const category = currentCategoriesList.find(item => Number(item.id) === Number(id));
+  if (!category) return;
+  currentEditingCategory = category;
+  showModal(`✏️ Chỉnh sửa: ${escapeHtml(category.name)}`, `
+    ${Number(category.product_count) > 0 ? `<div style="background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.3);border-radius:var(--radius-md);padding:10px 14px;margin-bottom:16px;font-size:12px;color:#93c5fd;line-height:1.5">Danh mục đang có <strong>${category.product_count} sản phẩm</strong>. Bạn vẫn có thể đổi tên; SQL Server giữ nguyên liên kết và lịch sử đánh giá.</div>` : ''}
+    <div class="form-group"><label>Tên danh mục *</label><input id="ec-name" maxlength="50" value="${escapeHtml(category.name)}"></div>
+    <div class="form-group"><label>Mô tả</label><textarea id="ec-description" maxlength="500">${escapeHtml(category.description || '')}</textarea></div>
+    <div class="form-group"><label>Trạng thái</label><select id="ec-status"><option value="ACTIVE" ${category.status === 'ACTIVE' ? 'selected' : ''}>✓ Đang sử dụng</option><option value="INACTIVE" ${category.status === 'INACTIVE' ? 'selected' : ''}>✕ Ngừng sử dụng</option></select></div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Hủy</button><button class="btn btn-primary" onclick="updateCategory(${category.id})">💾 Lưu thay đổi</button></div>
+  `);
+}
+
+async function updateCategory(id) {
+  const name = document.getElementById('ec-name').value.trim();
+  if (!name) return toast('Tên danh mục là bắt buộc', 'warning');
+  try {
+    const result = await api('PUT', `/api/admin/categories/${id}`, {
+      _version: currentEditingCategory?.record_version,
+      name,
+      description: document.getElementById('ec-description').value.trim(),
+      status: document.getElementById('ec-status').value
+    });
+    toast(result.message || 'Cập nhật danh mục thành công!', 'success');
+    closeModal();
+    renderManagerCategories();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function deleteCategory(id, name, productCount) {
+  const count = Number(productCount) || 0;
+  const message = count > 0
+    ? `Danh mục "${name}" đang có ${count} sản phẩm nên không thể xóa. Hệ thống sẽ chuyển danh mục sang "Ngừng sử dụng" và giữ nguyên mọi liên kết. Bạn có đồng ý?`
+    : `Xác nhận xóa vĩnh viễn danh mục "${name}"?`;
+  if (!confirm(message)) return;
+  try {
+    const result = await api('DELETE', `/api/admin/categories/${id}`);
+    toast(result.message || 'Đã xử lý danh mục', 'success');
+    renderManagerCategories();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function categoryOptions(categories, selected = '', activeOnly = false) {
+  return (categories || [])
+    .filter(category => !activeOnly || category.status === 'ACTIVE' || category.name === selected)
+    .map(category => `<option value="${escapeHtml(category.name)}" ${category.name === selected ? 'selected' : ''} ${activeOnly && category.status === 'INACTIVE' && category.name !== selected ? 'disabled' : ''}>${escapeHtml(category.name)}${category.status === 'INACTIVE' ? ' (Ngừng sử dụng ✕)' : ''}</option>`)
+    .join('');
+}
+
 // ========== ADMIN: PRODUCTS ==========
 let productFilters = {};
 
@@ -365,7 +538,7 @@ function openEditProductModalById(id) {
 
 function renderProductRowsHtml(products) {
   if (products.length === 0) {
-    return `<tr ${detailRow('openProductDetail',p.id)}><td colspan="8" style="text-align:center;color:var(--text-muted);padding:40px">Không tìm thấy sản phẩm nào</td></tr>`;
+    return '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:40px">Không tìm thấy sản phẩm nào</td></tr>';
   }
   return products.map(p => `
     <tr ${detailRow('openProductDetail',p.id)}>
@@ -485,6 +658,7 @@ async function fetchAndRenderProducts(filters = {}) {
     Object.entries(filters).forEach(([k, v]) => { if (v) params.append(k, v); });
     const products = await api('GET', `/api/admin/products?${params}`);
     const suppliers = await api('GET', '/api/admin/suppliers');
+    const categories = await api('GET', '/api/admin/categories');
     currentProductsList = products || [];
 
     const supplierOptions = suppliers.map(s => {
@@ -497,8 +671,7 @@ async function fetchAndRenderProducts(filters = {}) {
         <input type="text" id="prod-search" placeholder="🔍 Tên sản phẩm..." value="${escapeHtml(filters.search || '')}" oninput="debounceProductFilters()">
         <select id="prod-cat" onchange="applyProductFilters()">
           <option value="">Tất cả danh mục</option>
-          ${['Son môi', 'Kem dưỡng da', 'Serum', 'Kem chống nắng', 'Phấn phủ', 'Sữa rửa mặt', 'Toner', 'Mặt nạ']
-        .map(c => `<option value="${c}" ${filters.category === c ? 'selected' : ''}>${c}</option>`).join('')}
+          ${categoryOptions(categories, filters.category)}
         </select>
         <select id="prod-supplier" onchange="applyProductFilters()">
           <option value="">Tất cả NCC</option>${supplierOptions}
@@ -593,9 +766,11 @@ function resetProductFilters() {
 }
 
 async function openCreateProductModal() {
-  const suppliers = await api('GET', '/api/admin/suppliers').catch(() => []);
-  const catOptions = ['Son môi', 'Kem dưỡng da', 'Serum', 'Kem chống nắng', 'Phấn phủ', 'Sữa rửa mặt', 'Toner', 'Mặt nạ', 'Mascara', 'Phấn má hồng']
-    .map(c => `<option value="${c}">${c}</option>`).join('');
+  const [suppliers, categories] = await Promise.all([
+    api('GET', '/api/admin/suppliers').catch(() => []),
+    api('GET', '/api/admin/categories').catch(() => [])
+  ]);
+  const catOptions = categoryOptions(categories, '', true);
   const supOptions = suppliers.map(s => {
     const isInactive = s.status === 'INACTIVE';
     return `<option value="${s.id}" ${isInactive ? 'disabled style="color:var(--text-muted);background:rgba(15,23,42,0.8)"' : ''}>
@@ -649,9 +824,11 @@ async function createProduct() {
 
 async function openEditProductModal(p) {
   currentEditingProduct = p;
-  const suppliers = await api('GET', '/api/admin/suppliers').catch(() => []);
-  const catOptions = ['Son môi', 'Kem dưỡng da', 'Serum', 'Kem chống nắng', 'Phấn phủ', 'Sữa rửa mặt', 'Toner', 'Mặt nạ', 'Mascara', 'Phấn má hồng']
-    .map(c => `<option value="${c}" ${p.category === c ? 'selected' : ''}>${c}</option>`).join('');
+  const [suppliers, categories] = await Promise.all([
+    api('GET', '/api/admin/suppliers').catch(() => []),
+    api('GET', '/api/admin/categories').catch(() => [])
+  ]);
+  const catOptions = categoryOptions(categories, p.category, true);
   const supOptions = suppliers.map(s => {
     const isInactive = s.status === 'INACTIVE';
     const isCurrent = Number(p.supplier_id) === Number(s.id);
@@ -913,13 +1090,13 @@ function openEditSupplierModal(s) {
         <span style="font-size:18px;line-height:1">ℹ️</span>
         <div>
           <strong>Nhà cung cấp này đang có ${prodCount} sản phẩm liên kết.</strong><br>
-          <span>Tên nhà cung cấp được cố định để bảo toàn lịch sử thống kê CRM.</span>
+          <span>Bạn vẫn có thể đổi tên hoặc thông tin liên hệ; mã nhà cung cấp và các liên kết lịch sử không thay đổi.</span>
         </div>
       </div>
     ` : ''}
     <div class="form-group">
-      <label>Tên nhà cung cấp * ${hasProducts ? '<span style="color:var(--text-muted);font-weight:400">(Cố định 🔒)</span>' : ''}</label>
-      <input id="es-name" value="${escapeHtml(s.name)}" ${hasProducts ? 'disabled style="opacity:0.65;cursor:not-allowed;background:rgba(15,23,42,0.6)" title="Tên nhà cung cấp được cố định do đã có sản phẩm liên kết"' : ''}>
+      <label>Tên nhà cung cấp *</label>
+      <input id="es-name" value="${escapeHtml(s.name)}">
     </div>
     <div class="form-row">
       <div class="form-group"><label>Người liên hệ</label><input id="es-contact" value="${escapeHtml(s.contact_name || '')}"></div>
@@ -940,10 +1117,8 @@ function openEditSupplierModal(s) {
 }
 
 async function updateSupplier(id) {
-  const s = currentEditingSupplier || {};
-  const hasProducts = (Number(s.product_count) || 0) > 0;
   const nameInput = document.getElementById('es-name');
-  const nameVal = hasProducts ? s.name : (nameInput ? nameInput.value.trim() : s.name);
+  const nameVal = nameInput ? nameInput.value.trim() : '';
 
   if (!nameVal) {
     toast('Tên nhà cung cấp là bắt buộc', 'warning');

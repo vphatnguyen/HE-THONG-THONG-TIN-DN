@@ -185,7 +185,7 @@ function listResponse(res, rows, query, { dateField='created_at', searchFields=[
   return res.json(result);
 }
 async function checkRecordVersion(tx, table, id, body) {
-  if (!['Accounts','Products','Suppliers','Surveys','Feedbacks'].includes(table)) throw new Error('Invalid version table');
+  if (!['Accounts','Products','Suppliers','Categories','Surveys','Feedbacks'].includes(table)) throw new Error('Invalid version table');
   const row=await tx.prepare(`SELECT record_version FROM ${table} WITH (UPDLOCK,HOLDLOCK) WHERE id=?`).get(id);
   if (row && body._version !== undefined && body._version !== row.record_version) {
     const error=new Error('Bản ghi đã thay đổi từ khi bạn mở form. Vui lòng tải lại chi tiết trước khi lưu.');error.status=409;throw error;
@@ -200,6 +200,19 @@ function validateCatalogPayload(body, product) {
     if (body.launch_status !== undefined && !['OFFICIAL','UPCOMING'].includes(body.launch_status)) throw validationError('Trạng thái kinh doanh không hợp lệ');
     if (body.supplier_id && (!Number.isInteger(Number(body.supplier_id)) || Number(body.supplier_id)<=0)) throw validationError('Nhà cung cấp không hợp lệ');
   } else if (body.status !== undefined && !['ACTIVE','INACTIVE'].includes(body.status)) throw validationError('Trạng thái nhà cung cấp không hợp lệ');
+}
+
+function validateCategoryPayload(body) {
+  if (body.name !== undefined) {
+    body.name = String(body.name).trim();
+    if (!body.name || body.name.length > 50) throw validationError('Tên danh mục phải từ 1 đến 50 ký tự');
+  }
+  if (body.description !== undefined && body.description !== null && String(body.description).length > 500) {
+    throw validationError('Mô tả danh mục không được vượt quá 500 ký tự');
+  }
+  if (body.status !== undefined && !['ACTIVE','INACTIVE'].includes(body.status)) {
+    throw validationError('Trạng thái danh mục không hợp lệ');
+  }
 }
 
 app.use(express.json());
@@ -236,6 +249,7 @@ async function ensureAppSchema() {
   const fs = require('fs');
   await db.prepare(fs.readFileSync(path.join(__dirname, 'database/migrations/20261028_crm_integrity.sql'), 'utf8')).run();
   await db.prepare(fs.readFileSync(path.join(__dirname, 'database/migrations/20261028_question_templates.sql'), 'utf8')).run();
+  await db.prepare(fs.readFileSync(path.join(__dirname, 'database/migrations/20261028_categories.sql'), 'utf8')).run();
   await db.prepare(`
     IF OBJECT_ID('dbo.SurveyRecipients', 'U') IS NULL
     CREATE TABLE dbo.SurveyRecipients (
@@ -645,6 +659,96 @@ app.delete('/api/admin/accounts/:id', authMiddleware, requireRole('ADMIN'), asyn
   }
 });
 
+// ========== CATEGORIES (Manager & Admin) ==========
+app.get('/api/admin/categories', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
+  try {
+    const { search, status } = req.query;
+    let sql = `
+      SELECT c.*,
+        (SELECT COUNT(*) FROM Products p WHERE p.category = c.name) AS product_count,
+        (SELECT COUNT(*) FROM Feedbacks f JOIN Products p ON p.id=f.product_id WHERE p.category=c.name) AS review_count
+      FROM Categories c
+      WHERE 1=1
+    `;
+    const params = [];
+    if (search) {
+      sql += ' AND (c.name LIKE ? OR c.description LIKE ? OR CAST(c.id AS NVARCHAR(20)) = ?)';
+      const value = `%${search}%`;
+      params.push(value, value, String(search).replace(/^#/,''));
+    }
+    if (status) { sql += ' AND c.status = ?'; params.push(status); }
+    sql += ' ORDER BY c.created_at DESC, c.id DESC';
+    const rows = await db.prepare(sql).all(...params);
+    listResponse(res, rows, req.query, { searchFields:['id','name','description'], sortFields:['id','name','created_at'] });
+  } catch (err) {
+    sendKnownError(res, err);
+  }
+});
+
+app.post('/api/admin/categories', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
+  try {
+    validateCategoryPayload(req.body);
+    const { name, description, status } = req.body;
+    if (!name) throw validationError('Tên danh mục là bắt buộc');
+    const result = await db.prepare('INSERT INTO Categories(name,description,status) VALUES(?,?,?)')
+      .run(name, description ? String(description).trim() : null, status || 'ACTIVE');
+    res.status(201).json({ message: 'Thêm danh mục thành công', id: result.lastInsertRowid });
+  } catch (err) {
+    sendKnownError(res, err);
+  }
+});
+
+app.put('/api/admin/categories/:id', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
+  try {
+    validateCategoryPayload(req.body);
+    const result = await db.transaction(async tx => {
+      await checkRecordVersion(tx, 'Categories', req.params.id, req.body);
+      const current = await tx.prepare(`
+        SELECT c.*, (SELECT COUNT(*) FROM Products p WHERE p.category=c.name) AS product_count
+        FROM Categories c WITH (UPDLOCK,HOLDLOCK) WHERE c.id=?
+      `).get(req.params.id);
+      if (!current) return res.status(404).json({ error: 'Không tìm thấy danh mục' });
+      const name = req.body.name !== undefined ? req.body.name : current.name;
+      const description = req.body.description !== undefined ? (String(req.body.description).trim() || null) : current.description;
+      const status = req.body.status || current.status;
+      await tx.prepare('UPDATE Categories SET name=?,description=?,status=? WHERE id=?')
+        .run(name, description, status, req.params.id);
+      return {
+        message: Number(current.product_count) > 0 && name !== current.name
+          ? `Đã đổi tên danh mục và cập nhật liên kết cho ${current.product_count} sản phẩm.`
+          : 'Cập nhật danh mục thành công'
+      };
+    });
+    if (!res.headersSent) res.json(result);
+  } catch (err) {
+    sendKnownError(res, err);
+  }
+});
+
+app.delete('/api/admin/categories/:id', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
+  try {
+    const result = await db.transaction(async tx => {
+      const category = await tx.prepare(`
+        SELECT c.*, (SELECT COUNT(*) FROM Products p WHERE p.category=c.name) AS product_count
+        FROM Categories c WITH (UPDLOCK,HOLDLOCK) WHERE c.id=?
+      `).get(req.params.id);
+      if (!category) return res.status(404).json({ error: 'Không tìm thấy danh mục' });
+      if (Number(category.product_count) > 0) {
+        await tx.prepare("UPDATE Categories SET status='INACTIVE' WHERE id=?").run(req.params.id);
+        return {
+          message: `Danh mục "${category.name}" đang có ${category.product_count} sản phẩm nên không bị xóa. Đã chuyển sang Ngừng sử dụng.`,
+          softDeleted: true
+        };
+      }
+      await tx.prepare('DELETE FROM Categories WHERE id=?').run(req.params.id);
+      return { message: `Đã xóa danh mục "${category.name}".`, softDeleted: false };
+    });
+    if (!res.headersSent) res.json(result);
+  } catch (err) {
+    sendKnownError(res, err);
+  }
+});
+
 // ========== PRODUCTS (Manager & Admin) ==========
 app.get('/api/admin/products', authMiddleware, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
@@ -683,6 +787,9 @@ app.post('/api/admin/products', authMiddleware, requireRole('ADMIN', 'MANAGER'),
     if (req.body.supplier_id && !await db.prepare('SELECT id FROM Suppliers WHERE id=?').get(req.body.supplier_id)) throw validationError('Nhà cung cấp không tồn tại');
     const { name, category, supplier_id, price, description, launch_status } = req.body;
     if (!name || !category) return res.status(400).json({ error: 'Thiếu thông tin bắt buộc' });
+    const categoryRow = await db.prepare('SELECT id,status FROM Categories WHERE name=?').get(category);
+    if (!categoryRow) throw validationError('Danh mục không tồn tại');
+    if (categoryRow.status !== 'ACTIVE') throw validationError('Danh mục đang ngừng sử dụng');
 
     // Kiểm tra ràng buộc dây chuyền: Nếu mở kinh doanh (OFFICIAL) thì Nhà cung cấp không được ở trạng thái Ngừng hợp tác (INACTIVE)
     const targetLaunch = launch_status || 'OFFICIAL';
@@ -721,6 +828,12 @@ app.put('/api/admin/products/:id', authMiddleware, requireRole('ADMIN', 'MANAGER
     let finalCategory = category || current.category;
     let finalSupplierId = supplier_id !== undefined && supplier_id !== '' && supplier_id !== null ? Number(supplier_id) : current.supplier_id;
     const targetLaunch = launch_status || current.launch_status;
+
+    if (finalCategory !== current.category) {
+      const categoryRow = await tx.prepare('SELECT id,status FROM Categories WHERE name=?').get(finalCategory);
+      if (!categoryRow) throw validationError('Danh mục không tồn tại');
+      if (categoryRow.status !== 'ACTIVE') throw validationError('Danh mục đang ngừng sử dụng');
+    }
 
     if (Number(current.review_count) > 0) {
       // ĐÃ có đánh giá: Cố định category và supplier_id để bảo toàn lịch sử thống kê CRM
@@ -842,17 +955,8 @@ app.put('/api/admin/suppliers/:id', authMiddleware, requireRole('ADMIN', 'MANAGE
     `).get(req.params.id);
     if (!currentSupplier) return res.status(404).json({ error: 'Không tìm thấy nhà cung cấp' });
 
-    let finalName = currentSupplier.name;
-    if (Number(currentSupplier.product_count) > 0) {
-      // Đã có sản phẩm liên kết: Cố định tên nhà cung cấp để bảo toàn lịch sử CRM
-      if (name && name.trim() !== currentSupplier.name) {
-        return res.status(400).json({ error: 'Nhà cung cấp này đã có sản phẩm liên kết. Tên nhà cung cấp được cố định để bảo toàn lịch sử CRM.' });
-      }
-      finalName = currentSupplier.name;
-    } else {
-      if (!name || !name.trim()) return res.status(400).json({ error: 'Tên nhà cung cấp là bắt buộc' });
-      finalName = name.trim();
-    }
+    if (!name || !name.trim()) return res.status(400).json({ error: 'Tên nhà cung cấp là bắt buộc' });
+    const finalName = name.trim();
 
     const finalAddress = address !== undefined ? (address || null) : (currentSupplier.address || null);
     const newStatus = status || currentSupplier.status;

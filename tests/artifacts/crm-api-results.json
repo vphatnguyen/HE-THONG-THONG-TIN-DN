@@ -453,5 +453,26 @@
     "expected": "giữ mẫu hiện có; Customer khác 404; thông tin sản phẩm thuộc đánh giá chính mình",
     "actual": "giữ mẫu hiện có; Customer khác 404; thông tin sản phẩm thuộc đánh giá chính mình",
     "status": "PASS"
+  },
+  {
+    "id": "CRM64",
+    "scenario": "CRUD danh mục chưa có sản phẩm",
+    "expected": "thêm/sửa/tìm/xóa; tên duy nhất; chặn bản cũ",
+    "actual": "thêm/sửa/tìm/xóa; tên duy nhất; chặn bản cũ",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM65",
+    "scenario": "Danh mục có đánh giá đổi tên nhưng sản phẩm không đổi danh mục",
+    "expected": "cascade tên; đổi quan hệ 400; xóa mềm INACTIVE",
+    "actual": "cascade tên; đổi quan hệ 400; xóa mềm INACTIVE",
+    "status": "PASS"
+  },
+  {
+    "id": "CRM66",
+    "scenario": "Đổi tên nhà cung cấp đã có sản phẩm và đánh giá",
+    "expected": "200; giữ supplier_id và feedback",
+    "actual": "200; giữ supplier_id và feedback",
+    "status": "PASS"
   }
 ]
