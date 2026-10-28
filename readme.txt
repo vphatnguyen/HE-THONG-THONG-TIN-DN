@@ -2,18 +2,23 @@
                     THÔNG TIN NHÓM THỰC HIỆN ĐỀ TÀI
 ================================================================================
 
-- Tên đề tài: Hệ thống CRM Quản lý Chuỗi Cửa Hàng Mỹ Phẩm (Cosmetics CRM)
 - Môn học: Hệ thống thông tin doanh nghiệp
+- Giảng viên: L.N.L.Thúy
+- Tên đồ án: HỆ THỐNG CRM QUẢN LÝ CHUỖI CỬA HÀNG MỸ PHẨM (Cosmetics CRM)
+- Nhóm: 03
 
-THÀNH VIÊN NHÓM:
---------------------------------------------------------------------------------
-1. [Họ và Tên Sinh Viên 1] - MSSV: [Mã Số SV 1] (Nhóm trưởng)
-2. [Họ và Tên Sinh Viên 2] - MSSV: [Mã Số SV 2]
-3. [Họ và Tên Sinh Viên 3] - MSSV: [Mã Số SV 3]
+BẢNG THÀNH VIÊN VÀ THÔNG TIN LIÊN HỆ:
+---------------------------------------------------------------------------------------------------------------------------------------
+| Nhóm | STT | Mã sinh viên | Họ và tên            | Lớp      | Số điện thoại | Email                         |
+|------|-----|--------------|----------------------|----------|---------------|-------------------------------|
+| 3    | 17  | 3123411140   | Lê Bá An Khang       | DCT123C6 | [Điện thoại]  | [Email sinh viên]             |
+| 3    | 38  | 3123411296   | Mai Văn Nhật Tiến    | DCT123C6 | [Điện thoại]  | [Email sinh viên]             |
+| 3    | 42  | 3123411322   | Dương Hoàng Tuấn     | DCT123C6 | [Điện thoại]  | [Email sinh viên]             |
+| 3    | 27  | 3123411220   | Nguyễn Văn Phát      | DCT123C6 | 0369089771/0585667488  | vanphat2k5@gmail.com             |
+---------------------------------------------------------------------------------------------------------------------------------------
 
 GIẢNG VIÊN HƯỚNG DẪN:
 --------------------------------------------------------------------------------
-- Giảng viên: [Tên Giảng Viên]
-- Lớp / Khóa: [Tên Lớp / Học kỳ]
+- Giảng viên: L.N.L.Thúy
+
 ================================================================================
-viết rõ phần thiết kế CSDL, sơ đồ bảng, quy trình backup/restore
