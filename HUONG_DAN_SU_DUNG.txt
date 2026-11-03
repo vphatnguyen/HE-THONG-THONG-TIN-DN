@@ -80,7 +80,7 @@ IV. HƯỚNG DẪN SỬ DỤNG THEO VÀI TRÒ (PHÂN RÃ CHỨC NĂNG)
 1. Giao diện ADMIN (Quản trị hệ thống):
    - Giao diện Admin được thiết kế tách biệt và tinh gọn chuyên sâu về quản trị hệ thống.
    - Quản lý tài khoản (CRUD): Xem danh sách tài khoản, phân quyền (ADMIN, MANAGER, CUSTOMER), khóa/mở khóa tài khoản.
-   - Quản lý & Sao lưu, Phục hồi CSDL (Backup & Restore): Quản lý trạng thái kết nối SQL Server, thực thi Full Backup, Differential Backup và sinh kịch bản Restore.
+   - Việc sao lưu và phục hồi CSDL được thực hiện thủ công trực tiếp trong SQL Server/SSMS theo mục V.
 
 2. Giao diện MANAGER (Quản lý Cửa hàng & CRM):
    - Quản lý Danh mục Sản phẩm & Nhà cung cấp: Tìm kiếm nâng cao, lọc, sắp xếp, thêm mới, chuyển trạng thái Đang bán/Ngừng bán, chỉnh sửa và xóa sản phẩm/nhà cung cấp.

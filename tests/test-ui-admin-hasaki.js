@@ -23,7 +23,9 @@ async function run() {
     // 1. ADMIN MODULE VERIFICATION
     // ==========================================
     console.log('\n[1] Logging in as Admin...');
-    await page.click('.quick-btn.admin');
+    await page.fill('#login-username', 'admin');
+    await page.fill('#login-password', 'admin123');
+    await page.click('#login-btn');
     await page.waitForSelector('#sidebar-nav');
 
     console.log('[2] Navigating to Admin Accounts...');
@@ -84,7 +86,9 @@ async function run() {
     // 2. CUSTOMER MODULE & HASAKI REVIEWS
     // ==========================================
     console.log('\n[4] Logging in as Customer (khach001)...');
-    await page.click('.quick-btn.customer');
+    await page.fill('#login-username', 'khach001');
+    await page.fill('#login-password', '123456');
+    await page.click('#login-btn');
     await page.waitForSelector('#cust-home-products-grid');
 
     // Verify Welcome Banner: note "Hãy cập nhật hồ sơ làm đẹp của bạn!" must be removed

@@ -29,8 +29,9 @@ async function run() {
     await page.goto(BASE_URL);
     await page.waitForLoadState('networkidle');
 
-    // Click demo Manager quick-login button
-    await page.click('.quick-btn.manager');
+    await page.fill('#login-username', 'manager1');
+    await page.fill('#login-password', 'manager123');
+    await page.click('#login-btn');
     await page.waitForSelector('#sidebar-user-name');
     console.log('   Logged in successfully.');
 
@@ -146,7 +147,9 @@ async function run() {
     // 2. CUSTOMER MODULE VERIFICATION
     // ==========================================
     console.log('[5] Logging in as Customer (khach001)...');
-    await page.click('.quick-btn.customer');
+    await page.fill('#login-username', 'khach001');
+    await page.fill('#login-password', '123456');
+    await page.click('#login-btn');
     await page.waitForSelector('#sidebar-user-name');
     console.log('   Customer logged in successfully.');
 

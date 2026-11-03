@@ -237,98 +237,38 @@ a:hover {
   color: var(--text-secondary);
 }
 
-.quick-login {
-  margin-bottom: 20px;
-}
-
-.quick-label {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-bottom: 10px;
-}
-
-.quick-btns {
-  display: flex;
-  gap: 8px;
-}
-
-.quick-btn {
-  flex: 1;
-  padding: 10px 8px;
-  border: none;
-  border-radius: var(--radius);
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-  letter-spacing: 0.3px;
-}
-
-.quick-btn.admin {
-  background: linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(124, 58, 237, 0.3));
-  color: #c084fc;
-  border: 1px solid rgba(168, 85, 247, 0.3);
-}
-
-.quick-btn.admin:hover {
-  background: linear-gradient(135deg, rgba(168, 85, 247, 0.4), rgba(124, 58, 237, 0.5));
-  box-shadow: 0 0 15px rgba(168, 85, 247, 0.3);
-  transform: translateY(-1px);
-}
-
-.quick-btn.manager {
-  background: linear-gradient(135deg, rgba(244, 63, 94, 0.2), rgba(225, 29, 72, 0.3));
-  color: #fb7185;
-  border: 1px solid rgba(244, 63, 94, 0.3);
-}
-
-.quick-btn.manager:hover {
-  background: linear-gradient(135deg, rgba(244, 63, 94, 0.4), rgba(225, 29, 72, 0.5));
-  box-shadow: 0 0 15px rgba(244, 63, 94, 0.3);
-  transform: translateY(-1px);
-}
-
-.quick-btn.customer {
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(5, 150, 105, 0.3));
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.3);
-}
-
-.quick-btn.customer:hover {
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.4), rgba(5, 150, 105, 0.5));
-  box-shadow: 0 0 15px rgba(16, 185, 129, 0.3);
-  transform: translateY(-1px);
-}
-
-.login-divider {
-  text-align: center;
-  margin: 16px 0;
-  position: relative;
-}
-
-.login-divider::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: var(--border);
-}
-
-.login-divider span {
-  background: var(--bg-card-solid);
-  padding: 0 12px;
-  font-size: 12px;
-  color: var(--text-muted);
-  position: relative;
-}
-
 .login-form {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.sample-accounts {
+  margin-top: 12px;
+  padding: 9px 11px;
+  display: grid;
+  gap: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(45, 106, 79, 0.04);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.sample-accounts > span {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.sample-accounts small {
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.sample-accounts code {
+  color: var(--text-primary);
+  font-size: 10px;
 }
 
 .login-register-link {
@@ -799,38 +739,6 @@ textarea {
 .sidebar-footer {
   padding: 12px 10px;
   border-top: 1px solid var(--border);
-}
-
-.role-switcher {
-  margin-bottom: 10px;
-}
-
-.role-switcher-label {
-  font-size: 10px;
-  color: rgba(255, 255, 255, 0.55);
-  margin-bottom: 6px;
-}
-
-.role-switcher-btns {
-  display: flex;
-  gap: 6px;
-}
-
-.rsw-btn {
-  flex: 1;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-input);
-  font-size: 16px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.rsw-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
-  border-color: rgba(255, 255, 255, 0.5);
-  transform: translateY(-1px);
 }
 
 .btn-logout {
@@ -2179,40 +2087,6 @@ tbody tr.row-clickable:hover {
   color: var(--text-secondary);
 }
 
-/* Admin DB Console */
-.db-console {
-  background: #0a0f1e;
-  border: 1px solid rgba(16, 185, 129, 0.2);
-  border-radius: var(--radius-lg);
-  padding: 20px;
-  font-family: 'Courier New', monospace;
-}
-
-.db-console-output {
-  min-height: 200px;
-  max-height: 400px;
-  overflow-y: auto;
-  font-size: 13px;
-  color: #34d399;
-  line-height: 1.8;
-}
-
-.db-console-line-success {
-  color: #34d399;
-}
-
-.db-console-line-info {
-  color: #60a5fa;
-}
-
-.db-console-line-warning {
-  color: #fbbf24;
-}
-
-.db-console-line-error {
-  color: #f87171;
-}
-
 /* ============================================================
    RESPONSIVE
    ============================================================ */
@@ -2277,10 +2151,6 @@ tbody tr.row-clickable:hover {
 @media (max-width: 480px) {
   .login-card {
     padding: 28px 20px;
-  }
-
-  .quick-btns {
-    flex-direction: column;
   }
 
   .stats-grid {

@@ -16,7 +16,8 @@ LƯU Ý
 - Chỉ giả lập xóa dữ liệu trên CSDL học tập hoặc kiểm thử.
 - Full Backup chứa toàn bộ 15 bảng và dữ liệu tại thời điểm backup.
 - Dữ liệu tạo sau thời điểm Full Backup sẽ không có trong file backup.
-- Trang Admin chỉ xem/lưu lịch sử. Backup và Restore chạy trong SSMS.
+- Hệ thống không cung cấp chức năng Backup/Restore trên trang Admin.
+- Backup và Restore được thực hiện thủ công trực tiếp trong SQL Server/SSMS.
 
 ======================================================================
 BƯỚC 1 - TẠO THƯ MỤC BACKUP

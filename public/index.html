@@ -37,18 +37,6 @@
         </div>
       </div>
 
-      <!-- Quick Role Switcher -->
-      <div class="quick-login" id="quick-login-section">
-        <p class="quick-label">⚡ Đăng nhập nhanh để demo:</p>
-        <div class="quick-btns">
-          <button class="quick-btn admin" onclick="quickLogin('admin','admin123')">👑 Admin</button>
-          <button class="quick-btn manager" onclick="quickLogin('manager1','manager123')">📊 Manager</button>
-          <button class="quick-btn customer" onclick="quickLogin('khach001','123456')">🛍️ Khách hàng</button>
-        </div>
-      </div>
-
-      <div class="login-divider"><span>hoặc đăng nhập thủ công</span></div>
-
       <form id="login-form" class="login-form">
         <div class="form-group">
           <label for="login-username">Tên đăng nhập</label>
@@ -61,6 +49,13 @@
         <button type="submit" class="btn btn-primary btn-full" id="login-btn" accesskey="l">Đăng nhập</button>
         <p id="login-error" class="error-msg"></p>
       </form>
+
+      <div class="sample-accounts" role="note" aria-label="Tài khoản mẫu">
+        <span>Tài khoản mẫu:</span>
+        <small>Admin: <code>admin</code> / <code>admin123</code></small>
+        <small>Manager: <code>manager1</code> / <code>manager123</code></small>
+        <small>Customer: <code>khach001</code> / <code>123456</code></small>
+      </div>
       <p class="login-register-link">Chưa có tài khoản? <a href="#" onclick="showRegister()">Đăng ký ngay</a></p>
     </div>
   </div>
@@ -187,17 +182,6 @@
       </nav>
 
       <div class="sidebar-footer">
-        <!-- Quick Role Switcher in App -->
-        <div class="role-switcher">
-          <p class="role-switcher-label">Chuyển đổi demo:</p>
-          <div class="role-switcher-btns">
-            <button class="rsw-btn admin" onclick="quickLogin('admin','admin123')" title="Đăng nhập Admin">👑</button>
-            <button class="rsw-btn manager" onclick="quickLogin('manager1','manager123')"
-              title="Đăng nhập Manager">📊</button>
-            <button class="rsw-btn customer" onclick="quickLogin('khach001','customer123')"
-              title="Đăng nhập Customer">🛍️</button>
-          </div>
-        </div>
         <button class="btn-logout" onclick="logout()">🚪 Đăng xuất</button>
       </div>
     </aside>

@@ -171,14 +171,6 @@ async function login(username, password) {
   }
 }
 
-async function quickLogin(username, password) {
-  state.token = null; state.user = null; state.customer = null;
-  localStorage.clear();
-  document.getElementById('login-username').value = username;
-  document.getElementById('login-password').value = password;
-  await login(username, password);
-}
-
 function logout() {
   state = { token: null, user: null, customer: null, currentPage: null };
   localStorage.clear();
@@ -239,7 +231,6 @@ function buildSidebar() {
     ADMIN: [
       { label: 'PHÂN HỆ ADMIN', type: 'section' },
       { id: 'admin-accounts', icon: '👥', label: 'Quản lý Tài khoản' },
-      { id: 'admin-database', icon: '🗄️', label: 'Sao lưu & Phục hồi DB' },
     ],
     MANAGER: [
       { label: 'PHÂN HỆ QUẢN LÝ CRM', type: 'section' },
@@ -298,7 +289,6 @@ function navigate(pageId) {
     'admin-accounts': renderAdminAccounts,
     'admin-products': renderAdminProducts,
     'admin-suppliers': renderAdminSuppliers,
-    'admin-database': renderAdminDatabase,
     'manager-categories': renderManagerCategories,
     'manager-products': renderAdminProducts,
     'manager-suppliers': renderAdminSuppliers,

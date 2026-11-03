@@ -19,12 +19,10 @@ async function renderAdminAccounts() {
     renderAccountsTable(accounts);
   } catch (e) { toast(e.message, 'error'); }
 }
-
 function openEditAccountModalById(id) {
   const a = currentAccountsList.find(x => Number(x.id) === Number(id));
   if (a) openEditAccountModal(a);
 }
-
 const debounceFilterAccounts = debounce(filterAccounts, 150);
 
 let adminAccountPage = 1;
@@ -163,7 +161,6 @@ async function toggleAdminAccountStatus(id, newStatus, name) {
     renderAccountTablePage(adminAccountPage);
   } catch (e) { toast(e.message, 'error'); }
 }
-
 function resetAdminAccountsFilters() {
   listToolsState['accounts']={};
   resetVisibleListTools('accounts');
@@ -189,7 +186,6 @@ async function filterAccounts() {
     renderAccountsTable(accounts, { search, role, status });
   } catch (e) { toast(e.message, 'error'); }
 }
-
 function openCreateAccountModal() {
   showModal('➕ Tạo tài khoản quản trị nội bộ', `
     <div class="form-row">
@@ -1077,7 +1073,6 @@ async function createSupplier() {
     renderAdminSuppliers();
   } catch (e) { toast(e.message, 'error'); }
 }
-
 function openEditSupplierModal(s) {
   editingSupplierVersion=s.record_version;
   currentEditingSupplier = s;
@@ -1160,210 +1155,3 @@ async function deleteSupplier(id, name, productCount) {
   } catch (e) { toast(e.message, 'error'); }
 }
 
-// ========== ADMIN: DATABASE BACKUP/RESTORE CONSOLE ==========
-function renderAdminDatabase() {
-  setPageHeader('🗄️ Quản lý Cơ sở dữ liệu', 'Phương án sao lưu & phục hồi CSDL hệ thống CRM');
-
-  const html = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
-      <div class="stat-card purple">
-        <div class="stat-icon">🛡️</div>
-        <div class="stat-value">ONLINE</div>
-        <div class="stat-label">Trạng thái CSDL</div>
-      </div>
-      <div class="stat-card gold">
-        <div class="stat-icon">📦</div>
-        <div class="stat-value">SQL Server</div>
-        <div class="stat-label">Engine đang sử dụng</div>
-      </div>
-    </div>
-
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
-      <!-- Full Backup Panel -->
-      <div class="card">
-        <div class="card-title">🗃️ Full Backup</div>
-        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">Tạo bản sao lưu toàn bộ cơ sở dữ liệu. Nên thực hiện định kỳ hàng tuần.</p>
-        <div class="form-group" style="margin-bottom:14px">
-          <label>Tên file backup</label>
-          <input id="backup-filename" value="CosmeticsCRM_FULL_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}" placeholder="Tên file">
-        </div>
-        <button class="btn btn-primary btn-full" onclick="runFullBackup()">🔒 Thực hiện Full Backup</button>
-      </div>
-
-      <!-- Differential Backup Panel -->
-      <div class="card">
-        <div class="card-title">📝 Differential Backup</div>
-        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">Sao lưu các thay đổi phát sinh từ lần Full Backup gần nhất. Thực hiện hàng ngày.</p>
-        <div class="form-group" style="margin-bottom:14px">
-          <label>Tên file differential</label>
-          <input id="diff-filename" value="CosmeticsCRM_DIFF_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}" placeholder="Tên file">
-        </div>
-        <button class="btn btn-purple btn-full" onclick="runDiffBackup()">📊 Thực hiện Differential Backup</button>
-      </div>
-    </div>
-
-    <!-- Restore Panel -->
-    <div class="card" style="margin-bottom:24px">
-      <div class="card-title">♻️ Phục hồi CSDL (Restore)</div>
-      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">
-        Sinh script phục hồi SQL Server: Full Backup (NORECOVERY) → Differential Backup (RECOVERY).
-      </p>
-      <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:10px;padding:14px;margin-bottom:16px">
-        <p style="font-size:13px;color:#f87171;font-weight:600">⚠️ Kịch bản Test Giả lập Sự cố</p>
-        <ol style="font-size:12px;color:var(--text-secondary);padding-left:20px;margin-top:8px;line-height:2">
-          <li>Chạy Full Backup trước khi có sự cố</li>
-          <li>Chạy Differential Backup sau khi có dữ liệu phát sinh</li>
-          <li>Khi cần phục hồi, dùng script restore trong SSMS với quyền quản trị</li>
-          <li>Restore Full Backup bằng NORECOVERY</li>
-          <li>Restore Differential Backup bằng RECOVERY và kiểm tra dữ liệu</li>
-        </ol>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>File Full Backup</label><input id="restore-full-file" value="CosmeticsCRM_FULL_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}"></div>
-        <div class="form-group"><label>File Differential Backup</label><input id="restore-diff-file" value="CosmeticsCRM_DIFF_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}"></div>
-      </div>
-      <button class="btn btn-warning btn-full" onclick="generateRestoreScript()">🚨 Tạo Script Restore</button>
-    </div>
-
-    <!-- Existing Backups List -->
-    <div class="card" style="margin-bottom:24px">
-      <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
-        <span>📁 File Sao lưu hiện có</span>
-        <button class="btn btn-secondary btn-sm" onclick="loadBackupFiles()" style="font-size:11px">🔄 Làm mới</button>
-      </div>
-      <div id="backup-files-list">
-        <div class="loading-spinner"><div class="spinner"></div></div>
-      </div>
-    </div>
-
-    <!-- Console Output -->
-    <div class="card">
-      <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
-        <span>💻 Console Output</span>
-        <button class="btn btn-trash btn-sm" onclick="clearConsole()"><svg class="trash-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="margin-right:4px"><path d="M6 2v2H2v2h1v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6h1V4h-4V2h-2v2H9V2H6zm7 5v9h-2V7h2zM9 2V4h6V2H9z"/></svg> Xóa console</button>
-      </div>
-      <div class="db-console">
-        <div class="db-console-output" id="db-console-output">
-          <div class="db-console-line-info">-- BeautyCRM Database Management Console</div>
-          <div class="db-console-line-info">-- Database: CosmeticsCRM_DB | Engine: Microsoft SQL Server Local</div>
-          <div class="db-console-line-info">-- Sẵn sàng nhận lệnh...</div>
-          <div>&nbsp;</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- SQL Server Script Info -->
-    <div class="card" style="margin-top:20px">
-      <div class="card-title">📄 Script SQL Server cho Báo cáo</div>
-      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">
-        Các file SQL chuẩn Microsoft SQL Server đã được tạo sẵn để sử dụng trong báo cáo:
-      </p>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:10px;padding:14px">
-          <p style="font-size:13px;font-weight:700;color:#60a5fa;margin-bottom:6px">📋 schema_sqlserver.sql</p>
-          <p style="font-size:12px;color:var(--text-muted)">Tạo CSDL, các bảng CRM, ràng buộc, index và dữ liệu mẫu hoàn chỉnh</p>
-        </div>
-        <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:10px;padding:14px">
-          <p style="font-size:13px;font-weight:700;color:#34d399;margin-bottom:6px">🔒 backup_restore.sql</p>
-          <p style="font-size:12px;color:var(--text-muted)">Full Backup, Differential Backup & kịch bản test phục hồi bảng Feedbacks</p>
-        </div>
-      </div>
-    </div>
-  `;
-  setPageContent(html);
-  loadBackupFiles();
-}
-
-// ========== ADMIN: BACKUP FILES LIST ==========
-async function loadBackupFiles() {
-  const el = document.getElementById('backup-files-list');
-  if (!el) return;
-  el.innerHTML = '<div class="loading-spinner"><div class="spinner"></div></div>';
-  try {
-    const data = await api('GET', '/api/admin/database/backups');
-    if (!data.backups || data.backups.length === 0) {
-      el.innerHTML = `<p style="font-size:12px;color:var(--text-muted)">Chưa có file backup nào trong thư mục <code style="color:var(--rose-300)">${data.backup_dir}</code>. Hãy thực hiện Full Backup trước.</p>`;
-      return;
-    }
-    el.innerHTML = `
-      <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Thư mục: <code>${data.backup_dir}</code></p>
-      <table style="width:100%;border-collapse:collapse">
-        <thead><tr style="text-align:left">
-          <th style="font-size:11px;color:var(--text-muted);padding:4px 0">Tên file</th>
-          <th style="font-size:11px;color:var(--text-muted);padding:4px 0">Dung lượng</th>
-          <th style="font-size:11px;color:var(--text-muted);padding:4px 0">Ngày tạo</th>
-        </tr></thead>
-        <tbody>
-          ${data.backups.map(b => `
-            <tr>
-              <td style="font-size:12px;padding:4px 0"><code style="color:var(--rose-300)">${b.name}</code></td>
-              <td style="font-size:12px;color:var(--text-secondary)">${(b.size / 1024).toFixed(1)} KB</td>
-              <td style="font-size:12px;color:var(--text-muted)">${formatDateTime(b.created_at)}</td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-    `;
-  } catch (e) {
-    el.innerHTML = `<p class="error-msg" style="margin:0">${e.message}</p>`;
-  }
-}
-
-// ========== ADMIN: DATABASE BACKUP/RESTORE CONSOLE ==========
-function dbLog(msg, type = 'success') {
-  const out = document.getElementById('db-console-output');
-  if (!out) return;
-  const div = document.createElement('div');
-  div.className = `db-console-line-${type}`;
-  div.textContent = `[${new Date().toLocaleTimeString('vi-VN')}] ${msg}`;
-  out.appendChild(div);
-  out.scrollTop = out.scrollHeight;
-}
-
-function clearConsole() {
-  const out = document.getElementById('db-console-output');
-  if (out) out.innerHTML = '<div class="db-console-line-info">-- Console đã được xóa.</div>';
-}
-
-async function runFullBackup() {
-  const filename = document.getElementById('backup-filename').value || 'CosmeticsCRM_FULL';
-  dbLog('=== BẮT ĐẦU FULL BACKUP ===', 'info');
-  try {
-    const result = await api('POST', '/api/admin/database/backup', { type: 'FULL', filename });
-    dbLog(result.script, 'info');
-    dbLog(`FULL BACKUP THÀNH CÔNG: ${result.path}`, 'success');
-    toast('Full Backup hoàn thành!', 'success');
-  } catch (e) {
-    dbLog(`LỖI FULL BACKUP: ${e.message}`, 'error');
-    toast(e.message, 'error');
-  }
-}
-
-async function runDiffBackup() {
-  const filename = document.getElementById('diff-filename').value || 'CosmeticsCRM_DIFF';
-  dbLog('=== BẮT ĐẦU DIFFERENTIAL BACKUP ===', 'info');
-  try {
-    const result = await api('POST', '/api/admin/database/backup', { type: 'DIFFERENTIAL', filename });
-    dbLog(result.script, 'info');
-    dbLog(`DIFFERENTIAL BACKUP THÀNH CÔNG: ${result.path}`, 'success');
-    toast('Differential Backup hoàn thành!', 'success');
-  } catch (e) {
-    dbLog(`LỖI DIFFERENTIAL BACKUP: ${e.message}`, 'error');
-    toast(e.message, 'error');
-  }
-}
-
-async function generateRestoreScript() {
-  try {
-    const result = await api('POST', '/api/admin/database/restore-script', {
-      full_file: document.getElementById('restore-full-file').value,
-      diff_file: document.getElementById('restore-diff-file').value,
-    });
-    dbLog('=== SCRIPT RESTORE SQL SERVER ===', 'info');
-    result.script.split('\n').forEach(line => dbLog(line, 'warning'));
-    toast('Đã tạo script Restore trong console', 'success');
-  } catch (e) {
-    dbLog(`LỖI TẠO SCRIPT RESTORE: ${e.message}`, 'error');
-    toast(e.message, 'error');
-  }
-}

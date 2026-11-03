@@ -365,18 +365,6 @@ async function ensureAppSchema() {
   `).run();
 }
 
-function buildSqlServerBackupScript(type, filename) {
-  const backupDir = 'C:\\CosmeticsCRM_Backup';
-  if (type === 'DIFFERENTIAL') {
-    return `BACKUP DATABASE ${db.databaseName}\nTO DISK = N'${backupDir}\\${filename}.bak'\nWITH DIFFERENTIAL, INIT, NAME = N'Differential Backup - CosmeticsCRM', STATS = 10;`;
-  }
-  return `BACKUP DATABASE ${db.databaseName}\nTO DISK = N'${backupDir}\\${filename}.bak'\nWITH INIT, NAME = N'Full Backup - CosmeticsCRM', STATS = 10;`;
-}
-
-function buildSqlServerRestoreScript(fullFile, diffFile) {
-  return `USE master;\nALTER DATABASE ${db.databaseName} SET SINGLE_USER WITH ROLLBACK IMMEDIATE;\nRESTORE DATABASE ${db.databaseName}\nFROM DISK = N'C:\\CosmeticsCRM_Backup\\${fullFile}.bak'\nWITH NORECOVERY, REPLACE, STATS = 10;\nRESTORE DATABASE ${db.databaseName}\nFROM DISK = N'C:\\CosmeticsCRM_Backup\\${diffFile}.bak'\nWITH RECOVERY, STATS = 10;\nALTER DATABASE ${db.databaseName} SET MULTI_USER;`;
-}
-
 async function assignSurveyRecipients(surveyId, customerIds, sentBy, database = db) {
   const ids = Array.isArray(customerIds) ? customerIds.map(Number).filter(Boolean) : null;
   const recipients = ids !== null
@@ -1007,79 +995,6 @@ app.delete('/api/admin/suppliers/:id', authMiddleware, requireRole('ADMIN', 'MAN
     if (!res.headersSent) res.json(result);
   } catch (err) {
     sendKnownError(res,err);
-  }
-});
-
-// ========== ADMIN: SQL Server Backup / Restore ==========
-app.get('/api/admin/database/info', authMiddleware, requireRole('ADMIN'), async (req, res) => {
-  res.json({
-    engine: db.engine,
-    database: db.databaseName,
-    backup_dir: 'C:\\CosmeticsCRM_Backup'
-  });
-});
-
-app.post('/api/admin/database/backup', authMiddleware, requireRole('ADMIN'), async (req, res) => {
-  try {
-    const type = req.body.type === 'DIFFERENTIAL' ? 'DIFFERENTIAL' : 'FULL';
-    const defaultName = `CosmeticsCRM_${type}_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`;
-    const filename = String(req.body.filename || defaultName).replace(/[^a-zA-Z0-9_-]/g, '_');
-    const script = buildSqlServerBackupScript(type, filename);
-    try {
-      await db.prepare("EXEC master.dbo.xp_create_subdir N'C:\\CosmeticsCRM_Backup'").run();
-    } catch {
-      // SQL Server may disable xp_create_subdir; backup will still work if the folder already exists.
-    }
-    await db.prepare(script).run();
-    res.json({
-      message: type === 'DIFFERENTIAL' ? 'Đã sao lưu Differential Backup thành công' : 'Đã sao lưu Full Backup thành công',
-      filename: `${filename}.bak`,
-      path: `C:\\CosmeticsCRM_Backup\\${filename}.bak`,
-      script
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/admin/database/restore-script', authMiddleware, requireRole('ADMIN'), async (req, res) => {
-  const fullFile = String(req.body.full_file || 'CosmeticsCRM_FULL_YYYYMMDD').replace(/\.bak$/i, '');
-  const diffFile = String(req.body.diff_file || 'CosmeticsCRM_DIFF_YYYYMMDD').replace(/\.bak$/i, '');
-  const fs = require('fs');
-  const backupDir = 'C:\\CosmeticsCRM_Backup';
-  const fullPath = path.join(backupDir, `${fullFile}.bak`);
-  const diffPath = path.join(backupDir, `${diffFile}.bak`);
-  const script = buildSqlServerRestoreScript(fullFile, diffFile);
-  res.json({
-    message: 'Script phục hồi đã sẵn sàng. Chạy script này trong SSMS với quyền quản trị SQL Server.',
-    script,
-    verification: {
-      full_backup_exists: fs.existsSync(fullPath),
-      differential_backup_exists: fs.existsSync(diffPath),
-      full_path: fullPath,
-      diff_path: diffPath
-    }
-  });
-});
-
-// ========== ADMIN: List existing backup files ==========
-app.get('/api/admin/database/backups', authMiddleware, requireRole('ADMIN'), async (req, res) => {
-  try {
-    const fs = require('fs');
-    const backupDir = 'C:\\CosmeticsCRM_Backup';
-    let list = [];
-    if (fs.existsSync(backupDir)) {
-      list = fs.readdirSync(backupDir)
-        .filter(f => f.toLowerCase().endsWith('.bak'))
-        .map(f => {
-          const stat = fs.statSync(path.join(backupDir, f));
-          return { name: f, size: stat.size, created_at: stat.mtime };
-        })
-        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    }
-    res.json({ backup_dir: backupDir, backups: list });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
 });
 
